@@ -28,7 +28,7 @@ play via each tab.
 
 ## Authors
 
-Rob Holt (INSERT STUDENT ID HERE)
-Benjamin Kaiser (INSERT STUDENT ID HERE)
-Bruno Marques (INSERT STUDENT ID HERE)
-Ned Pummeroy (586530)
+* Rob Holt (INSERT STUDENT ID HERE)
+* Benjamin Kaiser (INSERT STUDENT ID HERE)
+* Bruno Marques (INSERT STUDENT ID HERE)
+* Ned Pummeroy (586530)
