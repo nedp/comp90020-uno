@@ -26,6 +26,10 @@ tabs.
 The tabs will start being an interface for playing Uno; one player can
 play via each tab.
 
+To create a custom room, visit http://localhost:8080/?room=myroom where `myroom`
+is whatever room you would like to name your room, then when sharing the url
+other players will join your room.
+
 ## Authors
 
 * Rob Holt (388648)
