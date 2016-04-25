@@ -39,6 +39,7 @@
   var leader = null;
   var isInitialised = false;
   var turn = 0;
+  var topology = [];
 
   var initialise = function() {
     isInitialised = true;
@@ -48,7 +49,7 @@
 
     // Choose the lowest pid as the leader.
     show('My pid is ' + pid);
-    var leader = pid;
+    leader = pid;
     peers.forEach(function(p) {
       if (p.id < leader) leader = p.id;
     });
@@ -75,12 +76,12 @@
         case TOPOLOGY:
           logAndShowMessage(peer, 'TOPOLOGY', data.payload);
 
-          var peerIDs = data.payload.split(',');
+          topology = data.payload.split(',');
           show('Current peer list is ' + peerIDs.join(', '));
 
           show('My pid is ' + pid);
-          var leader = pid;
-          peers.forEach(function(p) {
+          leader = pid;
+          peerIDs.forEach(function(p) {
             if (p.id < leader) leader = p.id;
           });
           show('The leader is now ' + leader);
@@ -98,14 +99,14 @@
 
         case STATE:
           logAndShowMessage(peer, 'STATE', data.payload);
-          // TODO
+          onUpdate(data.payload);
           break;
 
         case INITIALISE:
           logAndShowMessage(peer, 'INITIALISE', data.payload);
           if (isInitialised) {
             peer.sendDirectly(ROOM, PREINITIALISED);
-            peer.sendDirectly(ROOM, TOPOLOGY, peerIDs);
+            peer.sendDirectly(ROOM, TOPOLOGY, topology);
           } else {
             initialise();
             peer.sendDirectly(ROOM, INITIALISE);
@@ -135,8 +136,9 @@
 
         // Send the topology if we own it.
         if (leader === pid) {
-          var peerIDs = peers.map(peer => peer.id);
-          webrtc.sendDirectlyToAll(ROOM, TOPOLOGY, peerIDs);
+          topology = [pid].concat(peers.map(function(p) { return p.id; }));
+          console.log(topology.join(', '));
+          onLeaderTurn();
         }
 
         // Report the gamestate.
@@ -148,7 +150,7 @@
         peer.sendDirectly(ROOM, TURN, turn);
         isMyTurn = false;
       }
-    }, 500 * (Math.random() + 1));
+    }, 1500 * (Math.random() + 1));
   });
 
   // === Topology functions ===
@@ -204,6 +206,8 @@
     // TODO
     // 1. Set all pending processs to be live.
     // 2. Broadcast the new topology.
+    show('Taking turn as leader.');
+    webrtc.sendDirectlyToAll(ROOM, TOPOLOGY, topology.join(','));
   };
 
   // Called when a process receives a topology update.
