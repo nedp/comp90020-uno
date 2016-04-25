@@ -117,7 +117,9 @@
           logAndShowMessage(peer, 'INITIALISE', data.payload);
           if (isInitialised) {
             peer.sendDirectly(ROOM, PREINITIALISED);
-            peer.sendDirectly(ROOM, TOPOLOGY, topology);
+            if (leader === myPid) {
+              peer.sendDirectly(ROOM, TOPOLOGY, topology);
+            }
           } else {
             initialise();
             peer.sendDirectly(ROOM, INITIALISE);
