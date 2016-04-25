@@ -1,27 +1,154 @@
-(function(){
-  const BROADCAST = 'all-peers';
+(function() {
+  var ROOM = 'room';
+  var TOPOLOGY = 'top';
+  var TURN = 'turn';
+  var STATE = 'state';
+  var INITIALISE = 'init';
+  var PREINITIALISED = 'pre-init';
 
-  const webrtc = new SimpleWebRTC({
+  var webrtc = new SimpleWebRTC({
     media: {
       video: false,
       audio: false,
     },
   });
 
+  var assert = function(message, predicate) {
+    if (!predicate) {
+      console.log('assertion failed: ' + message);
+    }
+  };
+
+  var logMessage = function(peer, label, payload) {
+    console.log('Received a ' + label + ' message from ' + peer + ': '
+                + payload);
+  };
+
+  var show = function(message) {
+    document.body.innerHTML += '<p>' + message + '</p>';
+  };
+
+  var logAndShowMessage = function(peer, label, payload) {
+    logMessage(peer, label, payload);
+    show('Peer ' + peer.id + ' sent us a ' + label + ' message: "'
+         + payload + '"');
+  };
+
+  var pid;
+  var isMyTurn = false;
+  var leader = null;
+  var isInitialised = false;
+  var turn = 0;
+
+  var initialise = function() {
+    isInitialised = true;
+    var peers = webrtc.getPeers();
+    show('Current peer list is '
+         + peers.map(function(p) { return p.id; }).join(', '));
+
+    // Choose the lowest pid as the leader.
+    show('My pid is ' + pid);
+    var leader = pid;
+    peers.forEach(function(p) {
+      if (p.id < leader) leader = p.id;
+    });
+    show('The leader is now ' + leader);
+
+    // Give the first turn to the leader.
+    if (leader === pid) {
+      isMyTurn = true;
+      show("It's my turn first!");
+    }
+  };
+
   // we have to wait until it's ready
-  webrtc.on('readyToCall', () => {
+  webrtc.on('readyToCall', function() {
+    pid = webrtc.connection.connection.id;
+    show('My pid is ' + pid);
 
-    webrtc.joinRoom(BROADCAST);
+    webrtc.joinRoom(ROOM);
+    webrtc.sendDirectlyToAll(ROOM, INITIALISE);
+    // TODO Replace dodgy busy wait with something good.
 
-    webrtc.on('channelMessage', function (peer, label, data) {
-      console.log(peer);
-      console.log(data);
-      document.body.innerHTML += '<p>Peer ' + peer.id + ' sent us message: "' + data.payload + '"</p>';
+    webrtc.on('channelMessage', function (peer, room, data, other) {
+      switch (data.type) {
+        case TOPOLOGY:
+          logAndShowMessage(peer, 'TOPOLOGY', data.payload);
+
+          var peerIDs = data.payload.split(',');
+          show('Current peer list is ' + peerIDs.join(', '));
+
+          show('My pid is ' + pid);
+          var leader = pid;
+          peers.forEach(function(p) {
+            if (p.id < leader) leader = p.id;
+          });
+          show('The leader is now ' + leader);
+
+          break;
+
+        case TURN:
+          logAndShowMessage(peer, 'TURN', data.payload);
+          // TODO
+          isMyTurn = true;
+          var newTurn = parseInt(data.payload);
+          assert('turn is monotonic', newTurn > turn);
+          turn = newTurn;
+          break;
+
+        case STATE:
+          logAndShowMessage(peer, 'STATE', data.payload);
+          // TODO
+          break;
+
+        case INITIALISE:
+          logAndShowMessage(peer, 'INITIALISE', data.payload);
+          if (isInitialised) {
+            peer.sendDirectly(ROOM, PREINITIALISED);
+            peer.sendDirectly(ROOM, TOPOLOGY, peerIDs);
+          } else {
+            initialise();
+            peer.sendDirectly(ROOM, INITIALISE);
+          }
+          break;
+
+        case PREINITIALISED:
+          logAndShowMessage(peer, 'PREINITIALISED', data.payload);
+          isInitialised = true;
+          break;
+      }
     });
 
-    setInterval(() => {
-      webrtc.sendDirectlyToAll(BROADCAST, 'msg', 'Hello ' + Math.random());
-    }, 5000 * (Math.random() + 1));
+    setInterval(function() {
+      var peers = webrtc.getPeers();
+      if (peers.length === 0) return;
+
+      if (!isInitialised) {
+        webrtc.sendDirectlyToAll(ROOM, INITIALISE);
+      }
+
+      // If it's our turn, then:
+      if (isMyTurn) {
+        turn += 1;
+        show('Incrementing turn. turn is now ' + turn);
+        show("I'm taking my turn now (" + turn + ")");
+
+        // Send the topology if we own it.
+        if (leader === pid) {
+          var peerIDs = peers.map(peer => peer.id);
+          webrtc.sendDirectlyToAll(ROOM, TOPOLOGY, peerIDs);
+        }
+
+        // Report the gamestate.
+        webrtc.sendDirectlyToAll(ROOM, STATE, 'Hello all: ' + Math.random());
+
+        // Give the turn to the next player.
+        // TODO wait for an ack, and use a ring, not random.
+        var peer = peers[Math.floor(Math.random() * peers.length)];
+        peer.sendDirectly(ROOM, TURN, turn);
+        isMyTurn = false;
+      }
+    }, 500 * (Math.random() + 1));
   });
 
   // === Topology functions ===
@@ -60,27 +187,27 @@
   // algorithm or a more advanced algorithm; to be determined.
 
   // Called when this process starts and joins the network.
-  const onJoin = () => {
+  var onJoin = function() {
     // TODO
     // 1. Request the current topology, and to join it.
   };
 
   // Called at the leader process when a processs tries to join.
-  const onJoinRequest = () => {
+  var onJoinRequest = function() {
     // TODO
     // 1. Add the new process to the topology, as pending.
     // 2. Broadcast the new topology.
   };
 
   // Called at the leader process before taking a turn.
-  const onLeaderTurn = () => {
+  var onLeaderTurn = function() {
     // TODO
     // 1. Set all pending processs to be live.
     // 2. Broadcast the new topology.
   };
 
   // Called when a process receives a topology update.
-  const onTopologyUpdate = () => {
+  var onTopologyUpdate = function() {
     // TODO
     // 1. Remember the topology.
   };
@@ -103,7 +230,7 @@
   //   a Gotcha call.
 
   // Called when another process sends us a state update.
-  const onUpdate = () => {
+  var onUpdate = function() {
     // TODO
     // 1. In the view, update:
     //     * Card pile
@@ -117,13 +244,13 @@
   };
 
   // Called when the previous process passes the turn to us.
-  const onTurn = () => {
+  var onTurn = function() {
     // TODO
     // 1. Allow the player to take their turn.
   };
 
   // Called when the previous process skips us.
-  const onSkip = () => {
+  var onSkip = function() {
     // TODO
     // 1. Pass the turn to the next player.
   };
@@ -134,14 +261,14 @@
   // on the game state.
   // Locally displayed cards are not part of the game state,
   // so no message has to be sent.
-  const onDraw = () => {
+  var onDraw = function() {
     // TODO
     // 1. Choose, and add to the local hand, an appropriate number
     //    of cards.
   };
 
   // Called when the player takes their turn using the UI.
-  const onTurnTaken = () => {
+  var onTurnTaken = function() {
     // TODO
     // 1. Stop the player from taking a second turn.
     // 2. If I have only one card left, add me to the Uno list.
@@ -159,19 +286,19 @@
   // It might be better to pick a different approach.
 
   // Called when the player calls Uno via the UI.
-  const onUnoButton = () => {
+  var onUnoButton = function() {
     // TODO
     // 1. Broadcast the uno message.
   };
 
   // Called when the player calls Gotcha via the UI.
-  const onGotchaButton = () => {
+  var onGotchaButton = function() {
     // TODO
     // 1. Broadcast the gotcha message.
   };
 
   // Called when another process sends us an Uno message.
-  const onUnoMessage = () => {
+  var onUnoMessage = function() {
     // TODO
     // 1. Disregard the message if it's not my turn,
     //    since I don't own the state.
@@ -180,7 +307,7 @@
   };
 
   // Called when another process sends us a Gotcha message.
-  const onGotchaMessage = () => {
+  var onGotchaMessage = function() {
     // TODO
     // 1. Disregard the message if it's not my turn,
     //    since I don't own the state.
