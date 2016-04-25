@@ -1,5 +1,5 @@
 (function() {
-  var ROOM = 'room';
+  var ROOM = 'uno,jasvpoaisyq23io rc9pwurncpqwpufpwfh';
   var TOPOLOGY = 'top';
   var TURN = 'turn';
   var STATE = 'state';
@@ -20,7 +20,7 @@
   };
 
   var logMessage = function(peer, label, payload) {
-    console.log('Received a ' + label + ' message from ' + peer + ': '
+    console.log('Received a ' + label + ' message from ' + peer.id + ': '
                 + payload);
   };
 
@@ -34,6 +34,14 @@
          + payload + '"');
   };
 
+  var sendToPid = function(target, room, type, message) {
+    var peers = webrtc.getPeers();
+    var peer = peers.filter(function(p) { return p.id === target; })[0];
+    console.log(peer);
+    assert('target missing', peer != undefined);
+    peer.sendDirectly(room, type, message);
+  }
+
   var pid;
   var isMyTurn = false;
   var leader = null;
@@ -44,7 +52,7 @@
   var initialise = function() {
     isInitialised = true;
     var peers = webrtc.getPeers();
-    show('Current peer list is '
+    show('Initial peer list is '
          + peers.map(function(p) { return p.id; }).join(', '));
 
     // Choose the lowest pid as the leader.
@@ -77,13 +85,7 @@
           logAndShowMessage(peer, 'TOPOLOGY', data.payload);
 
           topology = data.payload.split(',');
-          show('Current peer list is ' + peerIDs.join(', '));
-
-          show('My pid is ' + pid);
-          leader = pid;
-          peerIDs.forEach(function(p) {
-            if (p.id < leader) leader = p.id;
-          });
+          show('Current topology is ' + topology.join(', '));
           show('The leader is now ' + leader);
 
           break;
@@ -121,11 +123,12 @@
     });
 
     setInterval(function() {
-      var peers = webrtc.getPeers();
-      if (peers.length === 0) return;
-
       if (!isInitialised) {
-        webrtc.sendDirectlyToAll(ROOM, INITIALISE);
+        var peers = webrtc.getPeers();
+        if (peers.length !== 0) {
+          webrtc.sendDirectlyToAll(ROOM, INITIALISE);
+        }
+        return;
       }
 
       // If it's our turn, then:
@@ -136,6 +139,7 @@
 
         // Send the topology if we own it.
         if (leader === pid) {
+          var peers = webrtc.getPeers();
           topology = [pid].concat(peers.map(function(p) { return p.id; }));
           console.log(topology.join(', '));
           onLeaderTurn();
@@ -145,9 +149,14 @@
         webrtc.sendDirectlyToAll(ROOM, STATE, 'Hello all: ' + Math.random());
 
         // Give the turn to the next player.
-        // TODO wait for an ack, and use a ring, not random.
-        var peer = peers[Math.floor(Math.random() * peers.length)];
-        peer.sendDirectly(ROOM, TURN, turn);
+        var otherPid = pid;
+        while (otherPid === pid) {
+          otherPid =
+            topology[Math.floor(Math.random() * (topology.length))];
+        }
+        sendToPid(otherPid, ROOM, TURN, turn);
+
+        // TODO Wait for an ack, and use a ring, not random.
         isMyTurn = false;
       }
     }, 1500 * (Math.random() + 1));
