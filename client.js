@@ -25,7 +25,8 @@
   };
 
   var show = function(message) {
-    document.body.innerHTML += '<p>' + message + '</p>';
+    document.body.innerHTML = '<p>' + new Date() + ': ' + message + '</p>'
+                              + document.body.innerHTML;
   };
 
   var logAndShowMessage = function(peer, label, payload) {
@@ -50,6 +51,7 @@
   var topology = [];
   var nextPid = {};
 
+  // TODO convert INITIALISE related logic into something better.
   var initialise = function() {
     isInitialised = true;
     var peers = webrtc.getPeers();
@@ -111,6 +113,7 @@
           break;
 
         case INITIALISE:
+          // TODO convert INITIALISE related logic into something better.
           logAndShowMessage(peer, 'INITIALISE', data.payload);
           if (isInitialised) {
             peer.sendDirectly(ROOM, PREINITIALISED);
@@ -122,6 +125,7 @@
           break;
 
         case PREINITIALISED:
+          // TODO convert INITIALISE related logic into something better.
           logAndShowMessage(peer, 'PREINITIALISED', data.payload);
           isInitialised = true;
           break;
@@ -129,6 +133,7 @@
     });
 
     setInterval(function() {
+      // TODO convert INITIALISE related logic into something better.
       if (!isInitialised) {
         var peers = webrtc.getPeers();
         if (peers.length !== 0) {
@@ -140,31 +145,15 @@
       // If it's our turn, then:
       if (isMyTurn) {
         turn += 1;
-        show('Incrementing turn. turn is now ' + turn);
         show("I'm taking my turn now (" + turn + ")");
 
         // Send the topology if we own it.
         if (leader === myPid) {
-          var peers = webrtc.getPeers();
-          topology = [myPid].concat(peers.map(function(p) { return p.id; }));
-          topology.forEach(function(pid, i) {
-            var iNext = (i+1 >= topology.length) ? 0 : i+1;
-            nextPid[pid] = topology[iNext];
-          });
-          console.log(topology.join(', '));
           onLeaderTurn();
         }
 
-        // Report the gamestate.
-        webrtc.sendDirectlyToAll(ROOM, STATE, 'Hello all: ' + Math.random());
-
-        // Give the turn to the next player.
-        // TODO failure handling / detection.
-        console.log(nextPid);
-        sendToPid(nextPid[myPid], ROOM, TURN, turn);
-
-        // TODO Wait for an ack, and use a ring, not random.
-        isMyTurn = false;
+        // Take my turn.
+        onTurnTaken();
       }
     }, 1500 * (Math.random() + 1));
   });
@@ -219,10 +208,19 @@
 
   // Called at the leader process before taking a turn.
   var onLeaderTurn = function() {
-    // TODO
-    // 1. Set all pending processs to be live.
-    // 2. Broadcast the new topology.
     show('Taking turn as leader.');
+
+    // TODO 1. Set all pending processs to be live.
+
+    // Until step 1 is implemented, just recalculate the topology instead.
+    var peers = webrtc.getPeers();
+    topology = [myPid].concat(peers.map(function(p) { return p.id; }));
+    topology.forEach(function(pid, i) {
+      var iNext = (i+1 >= topology.length) ? 0 : i+1;
+      nextPid[pid] = topology[iNext];
+    });
+
+    // 2. Broadcast the new topology.
     webrtc.sendDirectlyToAll(ROOM, TOPOLOGY, topology.join(','));
   };
 
@@ -289,12 +287,18 @@
 
   // Called when the player takes their turn using the UI.
   var onTurnTaken = function() {
-    // TODO
     // 1. Stop the player from taking a second turn.
-    // 2. If I have only one card left, add me to the Uno list.
-    // 3. If I have more than one card left, remove me from the Uno list.
+    // TODO Wait for an ack, and use a ring, not random.
+    isMyTurn = false;
+
+    // TODO 2. If I have only one card left, add me to the Uno list.
+    // TODO 3. If I have more than one card left, remove me from the Uno list.
+
     // 4. Broadcast the new update.
+    webrtc.sendDirectlyToAll(ROOM, STATE, 'I just took turn: ' + turn);
+
     // 5. Pass the turn to the next process.
+    sendToPid(nextPid[myPid], ROOM, TURN, turn);
   };
 
   // === Uno functions ===
