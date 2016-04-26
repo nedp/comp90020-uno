@@ -1,0 +1,18 @@
+{
+  "name": "comp90020-uno",
+  "version": "0.1.0",
+  "description": "Distributed Uno Game via WebRTC",
+  "main": "index.html",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nedp/comp90020-uno.git"
+  },
+  "scripts": {
+    "build": "./node_modules/babel-cli/bin/babel.js --presets react -w view.jsx --out-file view.js"
+  },
+  "homepage": "https://github.com/nedp/comp90020-uno#readme",
+  "dependencies": {
+    "babel-cli": "^6.7.7",
+    "babel-preset-react": "^6.5.0"
+  }
+}

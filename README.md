@@ -30,6 +30,11 @@ To create a custom room, visit http://localhost:8080/?room=myroom where `myroom`
 is whatever room you would like to name your room, then when sharing the url
 other players will join your room.
 
+### Notes on JSX files
+
+You'll want to run `npm run build` to monitor JSX files for changes so that
+corresponding JS files are updated.
+
 ## Authors
 
 * Rob Holt (388648)
