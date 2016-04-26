@@ -253,7 +253,7 @@
   //   a Gotcha call.
 
   // Called when another process sends us a state update.
-  var onUpdate = function () {
+  var onUpdate = function (newState) {
     // TODO
     // 1. In the view, update:
     //     * Card pile
@@ -264,6 +264,10 @@
     //    else enable it.
     // 4. Enable the Gotcha button if a different player is on the Uno
     //    list, else disable it.
+
+    // force the state to be an object
+    newState = Object(newState);
+    RootComponent.setState(newState);
   };
 
   // Called when the previous process passes the turn to us.
@@ -299,10 +303,14 @@
     // TODO 2. If I have only one card left, add me to the Uno list.
     // TODO 3. If I have more than one card left, remove me from the Uno list.
 
+    newState = {message: 'I just took turn: ' + turn};
     // 4. Broadcast the new update.
-    webrtc.sendDirectlyToAll(ROOM, STATE, 'I just took turn: ' + turn);
+    webrtc.sendDirectlyToAll(ROOM, STATE, newState);
 
-    // 5. Pass the turn to the next process.
+    // 5. update my own view
+    onUpdate(newState);
+
+    // 6. Pass the turn to the next process.
     sendToPid(nextPid[myPid], ROOM, TURN, turn);
   };
 

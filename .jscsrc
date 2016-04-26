@@ -1,5 +1,6 @@
 {
   "preset": "airbnb",
   "requirePaddingNewLinesAfterBlocks": false,
-  "requirePaddingNewLinesBeforeLineComments": false
+  "requirePaddingNewLinesBeforeLineComments": false,
+  "requireSpacesInsideObjectBrackets": false
 }
