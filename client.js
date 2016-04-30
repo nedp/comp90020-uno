@@ -38,14 +38,6 @@
          payload + '"');
   };
 
-  var sendToPid = function (target, room, type, message) {
-    show('Sending to peer ' + target);
-    var peers = webrtc.getPeers();
-    var peer = peers.filter(function (p) { return p.id === target; })[0];
-    assert('target missing', peer !== undefined);
-    peer.sendDirectly(room, type, message);
-  };
-
   var myPid;
   var isMyTurn = false;
   var leader = null;
@@ -53,6 +45,18 @@
   var turn = 0;
   var topology = [];
   var nextPid = {};
+
+  // ===== One-to-one connections =====
+  var pidMap = {};
+  webrtc.on('createdPeer', function (peer) {
+    pidMap[peer.id] = peer;
+  });
+  var sendToPid = function (targetPid, room, type, message) {
+    show('Sending to peer ' + targetPid);
+    var peer = pidMap[targetPid];
+    assert('target missing', peer !== undefined);
+    peer.sendDirectly(room, type, message);
+  };
 
   // TODO convert INITIALISE related logic into something better.
   var initialise = function () {
