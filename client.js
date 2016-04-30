@@ -49,6 +49,23 @@
   var nextPid = {};
 
   // ===== One-to-one connections =====
+  //
+  // pidMap is a map of process IDs (pids) to peers.
+  //
+  // The `createdPeer` is triggered:
+  //
+  // * when this process connects, for each other peer, and
+  // * when a new peer connects to the network after this peer.
+  //
+  // This is promised by the SimpleWebRTC API.
+  //
+  // The createdPeer event handle adds the new peer to pidMap, defined above.
+  // The sendToPid function sends a message:
+  //
+  // * to the peer with the specified pid (`targetPid`),
+  // * in the specified `room`,
+  // * with the specified message `type`,
+  // * containing the specified content (`message`).
   var pidMap = {};
   webrtc.on('createdPeer', function (peer) {
     pidMap[peer.id] = peer;
