@@ -1,4 +1,6 @@
 (function () {
+  'use strict';
+
   var URL = window.location.href;
   // decide on the rooom based on the ?room=name querystring parameter
   var ROOM = 'comp90020-uno-' + (URL.indexOf('room') > 0 ?
@@ -94,14 +96,16 @@
         case TOPOLOGY:
           logAndShowMessage(peer, 'TOPOLOGY', data.payload);
 
-          topology = data.payload.split(',');
-          topology.forEach(function (pid, i) {
-            var iNext = (i + 1 >= topology.length) ? 0 : i + 1;
-            nextPid[pid] = topology[iNext];
-          });
-          show('Current topology is ' + topology.join(', '));
-          leader = topology[0];
-          show('The leader is now ' + leader);
+          if ('function' === typeof data.payload.split) {
+            topology = data.payload.split(',');
+            topology.forEach(function (pid, i) {
+              var iNext = (i + 1 >= topology.length) ? 0 : i + 1;
+              nextPid[pid] = topology[iNext];
+            });
+            show('Current topology is ' + topology.join(', '));
+            leader = topology[0];
+            show('The leader is now ' + leader);
+          }
 
           break;
 
@@ -162,7 +166,8 @@
         }
 
         // Take my turn.
-        onTurnTaken();
+        var newState = {message: 'I just took turn: ' + turn};
+        onTurnTaken(newState);
       }
     }, 1500 * (Math.random() + 1));
   });
@@ -269,8 +274,6 @@
     // 4. Enable the Gotcha button if a different player is on the Uno
     //    list, else disable it.
 
-    // force the state to be an object
-    newState = Object(newState);
     RootComponent.setState(newState);
   };
 
@@ -299,7 +302,7 @@
   };
 
   // Called when the player takes their turn using the UI.
-  var onTurnTaken = function () {
+  var onTurnTaken = function (newState) {
     // 1. Stop the player from taking a second turn.
     // TODO Wait for an ack, and use a ring, not random.
     isMyTurn = false;
@@ -307,7 +310,6 @@
     // TODO 2. If I have only one card left, add me to the Uno list.
     // TODO 3. If I have more than one card left, remove me from the Uno list.
 
-    newState = {message: 'I just took turn: ' + turn};
     // 4. Broadcast the new update.
     webrtc.sendDirectlyToAll(ROOM, STATE, newState);
 
