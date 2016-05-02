@@ -19,9 +19,13 @@ document.addEventListener('DOMContentLoaded', function () {
   var GameState = {
     isInitialised: false,
     players: [],
-    leader: null,
     whosTurn: null,
     turnsTaken: 0,
+  };
+
+  var TopologyState = {
+    topology: [],
+    leader: null,
   };
 
   var webrtc = new SimpleWebRTC({
@@ -78,7 +82,7 @@ document.addEventListener('DOMContentLoaded', function () {
     pidMap[peer.id] = peer;
 
     if (!GameState.isInitialised) {
-      GameState.players = webrtc.getPeers().map(function (p) { return p.id; });
+      TopologyState.topology = webrtc.getPeers().map(function (p) { return p.id; });
       onUpdate(GameState);
     }
   });
@@ -109,8 +113,8 @@ document.addEventListener('DOMContentLoaded', function () {
     peerArray.push(myPid);
 
     // set the game state
-    GameState.leader = leader;
-    GameState.players = peerArray.sort();
+    TopologyState.leader = leader;
+    TopologyState.topology = peerArray.sort();
     GameState.whosTurn = leader;
 
     // Give the first turn to the leader.
@@ -139,21 +143,21 @@ document.addEventListener('DOMContentLoaded', function () {
         case TOPOLOGY:
           logAndShowMessage(peer, 'TOPOLOGY', data.payload);
 
-          if (typeof data.payload.split === 'function') {
-            var topology = data.payload.split(',');
+          if (data.payload && data.payload.topology) {
+            // update the Topology State
+            TopologyState = data.payload;
+
             // build the nextPid lookup (so each node knows who is next in
             // the ring)
-            topology.forEach(function (pid, i) {
-              var iNext = (i + 1 >= topology.length) ? 0 : i + 1;
-              nextPid[pid] = topology[iNext];
+            TopologyState.topology.forEach(function (pid, i) {
+              var iNext = (i + 1 >= TopologyState.topology.length) ? 0 : i + 1;
+              nextPid[pid] = TopologyState.topology[iNext];
             });
             // show the current topology
-            show('Current topology is ' + topology.join(', '));
-            show('The leader is now ' + topology[0]);
+            show('The leader is now ' + TopologyState.leader);
 
-            // update the GameState
-            GameState.players = topology;
-            GameState.leader = topology[0];
+            // update the state of the view
+            onUpdate(GameState);
           }
 
           break;
@@ -178,8 +182,8 @@ document.addEventListener('DOMContentLoaded', function () {
           logAndShowMessage(peer, 'INITIALISE', data.payload);
           if (GameState.isInitialised) {
             peer.sendDirectly(ROOM, PREINITIALISED, GameState);
-            if (GameState.leader === myPid) {
-              peer.sendDirectly(ROOM, TOPOLOGY, GameState.players);
+            if (TopologyState.leader === myPid) {
+              peer.sendDirectly(ROOM, TOPOLOGY, TopologyState);
             }
           } else {
             initialise();
@@ -212,7 +216,7 @@ document.addEventListener('DOMContentLoaded', function () {
         show('I\'m taking my turn now (' + GameState.turnsTaken + ')');
 
         // Send the topology if we own it.
-        if (GameState.leader === myPid) {
+        if (TopologyState.leader === myPid) {
           onLeaderTurn();
         }
 
@@ -287,10 +291,11 @@ document.addEventListener('DOMContentLoaded', function () {
       nextPid[pid] = topology[iNext];
     });
 
-    GameState.players = topology;
+    TopologyState.topology = topology;
+    TopologyState.leader = topology[0];
 
     // 2. Broadcast the new topology.
-    webrtc.sendDirectlyToAll(ROOM, TOPOLOGY, topology.join(','));
+    webrtc.sendDirectlyToAll(ROOM, TOPOLOGY, TopologyState);
   };
 
   // Called when a process receives a topology update.
@@ -328,7 +333,12 @@ document.addEventListener('DOMContentLoaded', function () {
     //    else enable it.
     // 4. Enable the Gotcha button if a different player is on the Uno
     //    list, else disable it.
+
+    // always add on the 'myTurn' boolean to the state
     newState.myTurn = (newState && newState.whosTurn == myPid);
+
+    // add on the list of players from the topology
+    newState.players = TopologyState.topology;
 
     RootComponent.setState(newState);
   };
