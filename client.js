@@ -344,8 +344,8 @@ document.addEventListener('DOMContentLoaded', function () {
     // 4. Enable the Gotcha button if a different player is on the Uno
     //    list, else disable it.
 
-    // always add on the 'myTurn' boolean to the state
-    newState.myTurn = (newState && newState.whosTurn == myPid);
+    // always add on the 'isMyTurn' boolean to the state
+    newState.isMyTurn = (newState && newState.whosTurn == myPid);
 
     // add on the list of players from the topology
     newState.players = TopologyState.topology;

@@ -25,7 +25,7 @@ var GameView = React.createClass({
     }
 
     var TurnButton = '';
-    if (this.state.isInitialised && this.state.myTurn) {
+    if (this.state.isInitialised && this.state.isMyTurn) {
       TurnButton = <div onClick={LogicInterface.takeTurn}
                            className="btn btn-primary">
                         Take a turn!
