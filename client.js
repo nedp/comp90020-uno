@@ -165,16 +165,26 @@ document.addEventListener('DOMContentLoaded', function () {
         case TURN:
           logAndShowMessage(peer, 'TURN', data.payload);
           // TODO
-          var newTurn = parseInt(data.payload);
+          // make an assertion about the turn order
+          var newTurn = data.payload.turnsTaken;
           assert('turn is monotonic', newTurn >= GameState.turnsTaken);
-          GameState.turnsTaken = newTurn;
-          GameState.whosTurn = myPid;
+
+          // update our local state
+          GameState = data.payload;
+
+          // broadcast the state to everyone now that we know we have
+          // successfully made it to our turn
+          webrtc.sendDirectlyToAll(ROOM, STATE, GameState);
+
+          // update our view
+          onUpdate(GameState);
+
           break;
 
         case STATE:
           logAndShowMessage(peer, 'STATE', data.payload);
           GameState = data.payload;
-          onUpdate(data.payload);
+          onUpdate(GameState);
           break;
 
         case INITIALISE:
@@ -375,14 +385,11 @@ document.addEventListener('DOMContentLoaded', function () {
     // TODO 2. If I have only one card left, add me to the Uno list.
     // TODO 3. If I have more than one card left, remove me from the Uno list.
 
-    // 4. Broadcast the new update.
-    webrtc.sendDirectlyToAll(ROOM, STATE, newState);
-
     // 5. update my own view
     onUpdate(newState);
 
     // 6. Pass the turn to the next process.
-    sendToPid(nextPid[myPid], ROOM, TURN, GameState.turnsTaken);
+    sendToPid(nextPid[myPid], ROOM, TURN, newState);
   };
 
   // === Uno functions ===
