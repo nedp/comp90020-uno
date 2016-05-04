@@ -212,7 +212,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     LogicInterface.takeTurn = function () {
       // Only take the turn if it's our turn!
-      if (GameState.whosTurn = myPid) {
+      if (GameState.whosTurn === myPid) {
         show('I\'m taking my turn now (' + GameState.turnsTaken + ')');
 
         // Send the topology if we own it.
