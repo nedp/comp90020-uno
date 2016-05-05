@@ -1,5 +1,5 @@
 // The public interface to the network layer of the system.
-var Network = (function() {
+var Network = (function () {
   'use strict';
 
   var URL = window.location.href;
@@ -21,7 +21,7 @@ var Network = (function() {
   // Regenerate the topology, save it locally, and update the view.
   function generateTopology() {
     var peers = webrtc.getPeers();
-    var pids = [myPid].concat(peers.map(function(p) { return p.id; }));
+    var pids = [myPid].concat(peers.map(function (p) { return p.id; }));
 
     topology = {};
     pids.sort().forEach(function (pid, i) {
@@ -75,7 +75,7 @@ var Network = (function() {
     var peer = pidMap[targetPid];
     Utility.assert(peer !== undefined, 'target missing');
     peer.sendDirectly(room, type, message);
-  };
+  }
 
   // TODO convert INITIALISE related logic into something better.
   function initialise() {
@@ -100,7 +100,7 @@ var Network = (function() {
       onLeaderTurn();
       Application.onFirstTurn(myPid);
     }
-  };
+  }
 
   webrtc.on('readyToCall', function () {
     myPid = webrtc.connection.connection.id;
@@ -166,8 +166,8 @@ var Network = (function() {
           // TODO Register with the leader.
           break;
 
-      default:
-        throw 'incomplete branch coverage in message handler switch statement';
+        default:
+          throw 'incomplete branch coverage in message handler switch statement';
       }
     });
   });
@@ -297,7 +297,7 @@ var Network = (function() {
 
     sendToPid(topology[myPid], ROOM, TURN, {
       turnType: turnType,
-      newState: newState
+      newState: newState,
     });
   }
 
