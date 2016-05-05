@@ -16,11 +16,13 @@ var Network = (function() {
   var PREINITIALISED = 'pre-init';
   var CHECK = 'check';
   var CHECK_RESP = 'resp';
+  var NODE_FAIL = 'fail';
 
   var myPid;
   var isInitialised = false;
   var leader = null;
   var topology = {};
+  var failed = [];
 
   var CheckState =
     {
@@ -188,6 +190,18 @@ var Network = (function() {
         case CHECK_RESP:
           Utility.logMessage(peer, 'CHECK_RESP', data.payload);
           receiveNeighbourResponse();
+          break;
+
+        case NODE_FAIL:
+          if (leader === myPid) {
+            handleNodeFailure(peer.id, data.payload);
+          }
+          break;
+
+        case NODE_REMOVE:
+          // TODO: Add logic here about ignoring the node here
+          // TODO: Add logic in message handler about handling messages
+          //       from a failed node; tell leader rather than handle message
           break;
 
       default:
@@ -366,18 +380,31 @@ var Network = (function() {
       setInterval(function () { checkNeighbour(newNeighbour); }, CHECK_INTERVAL);
   }
 
-  // Handle the failure of a neighbour
+  // Tell the leader that this node's neighbour has failed
+  function handleNeighbourFailure() {
+    Utility.log('*** NODE FAIL *** -- My neighbour ' +
+                CheckState.neighbour +
+                ' has failed!');
+    sendToPid(leader, ROOM, NODE_FAIL, CheckState.neighbour);
+    clearInterval(CheckState.checkIntervalHandler);
+  }
+
+  // As the leader: handle the failure of a node
   // This should close the ring over the failed node:
   //   2 -- 3          2 -- 3          2 -- 3
   //  /      \        /      \        /     |
   // 1        4  =>  1        X  =>  1      |
   //  \      /        \      /        \     |
   //   6 -- 5          6 -- 5          6 -- 5
-  function handleNeighbourFailure() {
-      Utility.log('*** NODE FAIL *** -- My neighbour ' +
-           CheckState.neighbour +
-           ' has failed!');
-      clearInterval(CheckState.checkIntervalHandler);
+  function handleNodeFailure(reporterPid, failedPid) {
+    // Tell all nodes that the node has failed
+    webrtc.sendDirectlyToAll(ROOM, NODE_REMOVE, nodePid);
+    // Delete the node from the topology, but remember in case it returns
+    topology[reporterPid] = topology[failedPid];
+    delete topology.failedPid;
+    failed.push(failedPid);
+    // Do we need to call generateTopology? That uses webRTC so maybe cheating?
+    broadcastTopology();
   }
 
   return {
