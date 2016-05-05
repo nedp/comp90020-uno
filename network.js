@@ -1,5 +1,6 @@
 // The public interface to the network layer of the system.
 var Network = (function() {
+  'use strict';
 
   var URL = window.location.href;
   // decide on the rooom based on the ?room=name querystring parameter
