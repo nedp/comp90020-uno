@@ -3,7 +3,7 @@ var GameView = React.createClass({
   getInitialState: function () {
     return {message: 'Game initialising'};
   },
-  // redner function for the view
+  // render function for the view
   render: function () {
     var players = [];
     if (this.state.players) {
@@ -16,7 +16,7 @@ var GameView = React.createClass({
     if (!this.state.isInitialised &&
         this.state.players &&
         this.state.players.length > 0) {
-      ReadyUpButton = <div onClick={LogicInterface.readyUp}
+      ReadyUpButton = <div onClick={Application.readyUp}
                            className="btn btn-default">
                         Ready!
                       </div>;
@@ -26,7 +26,7 @@ var GameView = React.createClass({
 
     var TurnButton = '';
     if (this.state.isInitialised && this.state.isMyTurn) {
-      TurnButton = <div onClick={LogicInterface.takeTurn}
+      TurnButton = <div onClick={Application.onTurnTaken}
                            className="btn btn-primary">
                         Take a turn!
                       </div>;
