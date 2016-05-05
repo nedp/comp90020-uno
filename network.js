@@ -1,5 +1,6 @@
 // The public interface to the network layer of the system.
-var Network = (function() {
+var Network = (function () {
+  'use strict';
 
   var URL = window.location.href;
   // decide on the rooom based on the ?room=name querystring parameter
@@ -35,7 +36,7 @@ var Network = (function() {
   // Regenerate the topology, save it locally, and update the view.
   function generateTopology() {
     var peers = webrtc.getPeers();
-    var pids = [myPid].concat(peers.map(function(p) { return p.id; }));
+    var pids = [myPid].concat(peers.map(function (p) { return p.id; }));
 
     topology = {};
     pids.sort().forEach(function (pid, i) {
@@ -107,8 +108,6 @@ var Network = (function() {
       if (pid < leader) leader = pid;
     });
     Utility.log('The leader is now ' + leader);
-
-
 
     // Give the first turn to the leader.
     if (leader === myPid) {
@@ -338,7 +337,7 @@ var Network = (function() {
 
     sendToPid(topology[myPid], ROOM, TURN, {
       turnType: turnType,
-      newState: newState
+      newState: newState,
     });
   }
 

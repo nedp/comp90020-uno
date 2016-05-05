@@ -1,5 +1,5 @@
 // The public interface to the application layer of the system.
-var Application = (function() {
+var Application = (function () {
   'use strict';
 
   // starting state of Game
@@ -104,7 +104,7 @@ var Application = (function() {
     // TODO
     // 1. Choose, and add to the local hand, an appropriate number
     //    of cards.
-  };
+  }
 
   // Called when the player takes their turn using the UI.
   function onTurnTaken() {
