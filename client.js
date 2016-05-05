@@ -1,4 +1,7 @@
-(function () {
+// methods that the view can call
+var LogicInterface = {};
+
+document.addEventListener('DOMContentLoaded', function () {
   'use strict';
 
   var URL = window.location.href;
@@ -11,6 +14,19 @@
   var STATE = 'state';
   var INITIALISE = 'init';
   var PREINITIALISED = 'pre-init';
+
+  // starting state of Game
+  var GameState = {
+    isInitialised: false,
+    players: [],
+    whosTurn: null,
+    turnsTaken: 0,
+  };
+
+  var TopologyState = {
+    topology: [],
+    leader: null,
+  };
 
   var webrtc = new SimpleWebRTC({
     media: {
@@ -41,11 +57,6 @@
   };
 
   var myPid;
-  var isMyTurn = false;
-  var leader = null;
-  var isInitialised = false;
-  var turn = 0;
-  var topology = [];
   var nextPid = {};
 
   // ===== One-to-one connections =====
@@ -69,6 +80,11 @@
   var pidMap = {};
   webrtc.on('createdPeer', function (peer) {
     pidMap[peer.id] = peer;
+
+    if (!GameState.isInitialised) {
+      TopologyState.topology = webrtc.getPeers().map(function (p) { return p.id; });
+      onUpdate(GameState);
+    }
   });
   var sendToPid = function (targetPid, room, type, message) {
     show('Sending to peer ' + targetPid);
@@ -79,24 +95,38 @@
 
   // TODO convert INITIALISE related logic into something better.
   var initialise = function () {
-    isInitialised = true;
+    GameState.isInitialised = true;
     var peers = webrtc.getPeers();
+    var peerArray = peers.map(function (p) { return p.id; });
     show('Initial peer list is ' +
-         peers.map(function (p) { return p.id; }).join(', '));
+         peerArray.join(', '));
 
     // Choose the lowest myPid as the leader.
     show('My myPid is ' + myPid);
-    leader = myPid;
+    var leader = myPid;
     peers.forEach(function (p) {
       if (p.id < leader) leader = p.id;
     });
     show('The leader is now ' + leader);
 
+    // add this Pid to the peer list (so I'm part of the game)
+    peerArray.push(myPid);
+
+    // set the game state
+    TopologyState.leader = leader;
+    TopologyState.topology = peerArray.sort();
+    GameState.whosTurn = leader;
+
     // Give the first turn to the leader.
     if (leader === myPid) {
-      isMyTurn = true;
       show('It\'s my turn first!');
     }
+
+    onUpdate(GameState);
+  };
+
+  var initGameStateAndSend = function () {
+    // TODO initialise the deck and hands
   };
 
   // we have to wait until it's ready
@@ -113,15 +143,21 @@
         case TOPOLOGY:
           logAndShowMessage(peer, 'TOPOLOGY', data.payload);
 
-          if ('function' === typeof data.payload.split) {
-            topology = data.payload.split(',');
-            topology.forEach(function (pid, i) {
-              var iNext = (i + 1 >= topology.length) ? 0 : i + 1;
-              nextPid[pid] = topology[iNext];
+          if (data.payload && data.payload.topology) {
+            // update the Topology State
+            TopologyState = data.payload;
+
+            // build the nextPid lookup (so each node knows who is next in
+            // the ring)
+            TopologyState.topology.forEach(function (pid, i) {
+              var iNext = (i + 1 >= TopologyState.topology.length) ? 0 : i + 1;
+              nextPid[pid] = TopologyState.topology[iNext];
             });
-            show('Current topology is ' + topology.join(', '));
-            leader = topology[0];
-            show('The leader is now ' + leader);
+            // show the current topology
+            show('The leader is now ' + TopologyState.leader);
+
+            // update the state of the view
+            onUpdate(GameState);
           }
 
           break;
@@ -129,24 +165,35 @@
         case TURN:
           logAndShowMessage(peer, 'TURN', data.payload);
           // TODO
-          isMyTurn = true;
-          var newTurn = parseInt(data.payload);
-          assert('turn is monotonic', newTurn > turn);
-          turn = newTurn;
+          // make an assertion about the turn order
+          var newTurn = data.payload.turnsTaken;
+          assert('turn is monotonic', newTurn >= GameState.turnsTaken);
+
+          // update our local state
+          GameState = data.payload;
+
+          // broadcast the state to everyone now that we know we have
+          // successfully made it to our turn
+          webrtc.sendDirectlyToAll(ROOM, STATE, GameState);
+
+          // update our view
+          onUpdate(GameState);
+
           break;
 
         case STATE:
           logAndShowMessage(peer, 'STATE', data.payload);
-          onUpdate(data.payload);
+          GameState = data.payload;
+          onUpdate(GameState);
           break;
 
         case INITIALISE:
           // TODO convert INITIALISE related logic into something better.
           logAndShowMessage(peer, 'INITIALISE', data.payload);
-          if (isInitialised) {
-            peer.sendDirectly(ROOM, PREINITIALISED);
-            if (leader === myPid) {
-              peer.sendDirectly(ROOM, TOPOLOGY, topology);
+          if (GameState.isInitialised) {
+            peer.sendDirectly(ROOM, PREINITIALISED, GameState);
+            if (TopologyState.leader === myPid) {
+              peer.sendDirectly(ROOM, TOPOLOGY, TopologyState);
             }
           } else {
             initialise();
@@ -157,36 +204,39 @@
         case PREINITIALISED:
           // TODO convert INITIALISE related logic into something better.
           logAndShowMessage(peer, 'PREINITIALISED', data.payload);
-          isInitialised = true;
+          GameState = data.payload;
+          onUpdate(GameState);
           break;
       }
     });
 
-    setInterval(function () {
+    LogicInterface.readyUp = function () {
       // TODO convert INITIALISE related logic into something better.
-      if (!isInitialised) {
+      if (!GameState.isInitialised) {
         var peers = webrtc.getPeers();
         if (peers.length !== 0) {
           webrtc.sendDirectlyToAll(ROOM, INITIALISE);
         }
-        return;
       }
+    };
 
-      // If it's our turn, then:
-      if (isMyTurn) {
-        turn += 1;
-        show('I\'m taking my turn now (' + turn + ')');
+    LogicInterface.takeTurn = function () {
+      // Only take the turn if it's our turn!
+      if (GameState.whosTurn === myPid) {
+        show('I\'m taking my turn now (' + GameState.turnsTaken + ')');
 
         // Send the topology if we own it.
-        if (leader === myPid) {
+        if (TopologyState.leader === myPid) {
           onLeaderTurn();
         }
 
-        // Take my turn.
-        var newState = {message: 'I just took turn: ' + turn};
-        onTurnTaken(newState);
+        // Take my turn, set the next player as their turn
+        // and increment how many turns have been taken
+        GameState.whosTurn = nextPid[myPid];
+        GameState.turnsTaken++;
+        onTurnTaken(GameState);
       }
-    }, 1500 * (Math.random() + 1));
+    };
   });
 
   // === Topology functions ===
@@ -245,14 +295,17 @@
 
     // Until step 1 is implemented, just recalculate the topology instead.
     var peers = webrtc.getPeers();
-    topology = [myPid].concat(peers.map(function (p) { return p.id; }));
+    var topology = [myPid].concat(peers.map(function (p) { return p.id; }));
     topology.forEach(function (pid, i) {
       var iNext = (i + 1 >= topology.length) ? 0 : i + 1;
       nextPid[pid] = topology[iNext];
     });
 
+    TopologyState.topology = topology;
+    TopologyState.leader = topology[0];
+
     // 2. Broadcast the new topology.
-    webrtc.sendDirectlyToAll(ROOM, TOPOLOGY, topology.join(','));
+    webrtc.sendDirectlyToAll(ROOM, TOPOLOGY, TopologyState);
   };
 
   // Called when a process receives a topology update.
@@ -291,6 +344,12 @@
     // 4. Enable the Gotcha button if a different player is on the Uno
     //    list, else disable it.
 
+    // always add on the 'isMyTurn' boolean to the state
+    newState.isMyTurn = (newState && newState.whosTurn == myPid);
+
+    // add on the list of players from the topology
+    newState.players = TopologyState.topology;
+
     RootComponent.setState(newState);
   };
 
@@ -322,19 +381,15 @@
   var onTurnTaken = function (newState) {
     // 1. Stop the player from taking a second turn.
     // TODO Wait for an ack, and use a ring, not random.
-    isMyTurn = false;
 
     // TODO 2. If I have only one card left, add me to the Uno list.
     // TODO 3. If I have more than one card left, remove me from the Uno list.
-
-    // 4. Broadcast the new update.
-    webrtc.sendDirectlyToAll(ROOM, STATE, newState);
 
     // 5. update my own view
     onUpdate(newState);
 
     // 6. Pass the turn to the next process.
-    sendToPid(nextPid[myPid], ROOM, TURN, turn);
+    sendToPid(nextPid[myPid], ROOM, TURN, newState);
   };
 
   // === Uno functions ===
@@ -382,4 +437,4 @@
   // Not sure what the approach is here.
   //
   // Maybe handle it with a decorator around SimpleWebRTC?
-})();
+});

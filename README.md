@@ -38,6 +38,6 @@ corresponding JS files are updated.
 ## Authors
 
 * Rob Holt (388648)
-* Benjamin Kaiser (INSERT STUDENT ID HERE)
+* Benjamin Kaiser (655060)
 * Bruno Marques (INSERT STUDENT ID HERE)
 * Ned Pummeroy (586530)
