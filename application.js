@@ -19,6 +19,12 @@ var Application = (function () {
     onUpdate(GameState);
   }
 
+  // Called when the player presses the ready button to indicate that
+  // they're ready to start the game.
+  // This allows players to wait until we have agreed that everyone is
+  // ready before starting the game.
+  // NOTE: This doesn't wait for all participants to be ready; as soon
+  // as the first participant hits the button, the game will start.
   function readyUp() {
     Network.requestStart();
   }
@@ -65,27 +71,10 @@ var Application = (function () {
     //    list, else disable it.
   }
 
-  var NORMAL = 'normal';
-  var SKIP = 'skip';
-
   // Called when the previous process passes the turn to us.
-  function onTurnReceived(type) {
-    switch (type) {
-      case NORMAL:
-        // TODO 1. Allow the player to take their turn.
-        RootComponent.setState({isMyTurn: true});
-        break;
-
-      case SKIP:
-        // Called when the previous process skips us, including
-        // 'draw' cards.
-        // TODO 1. Pass the turn to the next player.
-
-        break;
-
-      default:
-        throw 'incomplete branch coverage in onTurnReceived switch statement';
-    }
+  function onTurnReceived() {
+    // 1. Allow the player to take their turn.
+    RootComponent.setState({isMyTurn: true});
   }
 
   function onFirstTurn(pid) {
