@@ -18,12 +18,13 @@ var Network = (function () {
   var CHECK = 'check';
   var CHECK_RESP = 'resp';
   var NODE_FAIL = 'fail';
+  var ZOMBIE_NODE = 'zombie';
 
   var myPid;
   var isInitialised = false;
   var leader = null;
   var topology = {};
-  var failed = [];
+  var failed = {};
 
   var CheckState =
     {
@@ -126,6 +127,11 @@ var Network = (function () {
     // TODO Replace dodgy busy wait with something good.
 
     webrtc.on('channelMessage', function (peer, room, data, other) {
+      if (failed[peer.id]) {
+        sendToPid(leader, ROOM, ZOMBIE_NODE, { zombiePid: peer.id });
+        return;
+      }
+
       switch (data.type) {
         case TOPOLOGY:
           Utility.logMessage(peer, 'TOPOLOGY', data.payload);
@@ -201,10 +207,11 @@ var Network = (function () {
           // TODO: Add logic here about ignoring the node here
           // TODO: Add logic in message handler about handling messages
           //       from a failed node; tell leader rather than handle message
+          failed[data.payload.failedPid] = true;
           break;
 
-      default:
-        throw 'incomplete branch coverage in message handler switch statement';
+        default:
+          throw 'incomplete branch coverage in message handler switch statement';
       }
     });
   });
@@ -358,7 +365,6 @@ var Network = (function () {
   function checkNeighbour(neighbourPid) {
     if (!CheckState.hasReceivedResponse) {
       handleNeighbourFailure();
-      alert('FAILURE');
     }
     CheckState.hasReceivedResponse = false;
     sendToPid(neighbourPid, ROOM, CHECK);
@@ -375,12 +381,13 @@ var Network = (function () {
       clearInterval(CheckState.checkIntervalHandler);
     }
     CheckState.neighbour = newNeighbour;
-    checkIntervalHandler =
+    CheckState.checkIntervalHandler =
       setInterval(function () { checkNeighbour(newNeighbour); }, CHECK_INTERVAL);
   }
 
   // Tell the leader that this node's neighbour has failed
   function handleNeighbourFailure() {
+    alert(CheckState.neighbour + ' has failed!');
     Utility.log('*** NODE FAIL *** -- My neighbour ' +
                 CheckState.neighbour +
                 ' has failed!');
@@ -397,11 +404,11 @@ var Network = (function () {
   //   6 -- 5          6 -- 5          6 -- 5
   function handleNodeFailure(reporterPid, failedPid) {
     // Tell all nodes that the node has failed
-    webrtc.sendDirectlyToAll(ROOM, NODE_REMOVE, nodePid);
+    webrtc.sendDirectlyToAll(ROOM, NODE_REMOVE, { failedPid: failedPid });
     // Delete the node from the topology, but remember in case it returns
     topology[reporterPid] = topology[failedPid];
     delete topology.failedPid;
-    failed.push(failedPid);
+    failed[failedPid] = true;
     // Do we need to call generateTopology? That uses webRTC so maybe cheating?
     broadcastTopology();
   }
