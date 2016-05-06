@@ -25,10 +25,23 @@ var Network = (function () {
   var FORWARD = 'fwrd';
   var BACKWARD = 'back';
   var direction = FORWARD;
+  // The leader permanently holds the lock on the topology.
   var topology;
 
-  // The leader permanently holds the lock on the topology.
-  var leader = null;
+  // Returns true if the topologies have the same leader, players,
+  // and order of the players in both directions.
+  // Otherwise returns false.
+  function topologiesAreEqual(a, b) {
+    if (a.leader !== b.leader) return false;
+
+    var players = Object.keys(a[FORWARD]).sort();
+    if (players !== Object.keys(b[FORWARD]).sort()) return false;
+
+    return players.every(function (p) {
+      a[FORWARD][p] === b[FORWARD][p] &&
+      a[BACKWARD][p] === b[BACKWARD][p];
+    });
+  }
 
   // Regenerate the topology, save it locally, and update the view.
   // This generates the topology in both directions (which makes
@@ -45,14 +58,16 @@ var Network = (function () {
 
     // Completely recalculate the topology.
     // TODO Optimise to only recalculate stuff that changes.
-    var topology = { leader: pids[0]; };
-
+    var topology = {};
     // Create the 'forward' topology based on the peer list.
     topology[FORWARD] = {};
     pids.sort().forEach(function (pid, i) {
       var iNext = (i + 1 >= pids.length) ? 0 : i + 1;
       topology[FORWARD][pid] = pids[iNext];
     });
+
+    // The leader is always the process with the lowest pid.
+    topology.leader = pids[0];
 
     // Create the 'backward' topology as the reverse of the
     // forwards topology.
@@ -69,8 +84,11 @@ var Network = (function () {
     return topology;
   }
 
-  function renderPlayers(topology) {
-    RootComponent.setState({ players: Object.keys(topology[FORWARD]) });
+  function render(topology) {
+    RootComponent.setState({
+      players: Object.keys(topology[FORWARD]),
+      leader: topology.leader,
+    });
   }
 
   var webrtc = new SimpleWebRTC({
@@ -106,15 +124,8 @@ var Network = (function () {
     // Before initialisation there is no leader, so each process
     // should compute and display its own player list.
     if (!isInitialised) {
-      generateTopology();
-      renderPlayers(topology);
+      render(generateTopology());
     }
-
-    // All processes should periodically check on the topology
-    // if they are the leader.
-    window.setInterval(function () {
-      if (leader === myPid) checkTopology();
-    }, TOPOLOGY_INTERVAL_MILLISECONDS);
   });
 
   function sendToPid(targetPid, room, type, message) {
@@ -136,18 +147,26 @@ var Network = (function () {
 
     // Choose the lowest myPid as the leader.
     Utility.log('My myPid is ' + myPid);
-    leader = myPid;
-    pids.forEach(function (pid) {
-      if (pid < leader) leader = pid;
-    });
-    Utility.log('The leader is now ' + leader);
+    var leader = pids.sort()[0];
+    Utility.log('The leader is ' + leader);
 
     // Give the first turn to the leader.
     if (leader === myPid) {
       Utility.log("It's my turn first!");
+      // Register this process as the initial leader before checking the
+      // topology since only the leader may check it.
+      topology = generateTopology();
+      topology.leader = leader;
       checkTopology();
       Application.onFirstTurn(myPid);
     }
+
+    // All processes should periodically check on the topology
+    // if they are the leader.
+    window.setInterval(function () {
+      console.log(topology);
+      if (topology.leader === myPid) checkTopology();
+    }, TOPOLOGY_INTERVAL_MILLISECONDS);
   }
 
   webrtc.on('readyToCall', function () {
@@ -180,7 +199,7 @@ var Network = (function () {
           Utility.logMessage(peer, 'INITIALISE', data.payload);
           if (isInitialised) {
             peer.sendDirectly(ROOM, PREINITIALISED);
-            if (leader === myPid) {
+            if (topology.leader === myPid) {
               broadcastTopology();
             }
           } else {
@@ -263,38 +282,35 @@ var Network = (function () {
   // If it has changed, the view is updated accordingly and everyone
   // is notified.
   function checkTopology() {
-    assertEquals(leader, myPid, 'only the leader may check the topology');
+    Utility.assertEquals(topology.leader, myPid,
+        'only the leader may check the topology');
     Utility.log("Checking the topology since I'm the leader");
 
     // 1. Generate the new topology.
-    var newTopology = generateTopology(pids);
+    var newTopology = generateTopology();
 
     // 2. Remember and broadcast the new topology if it is different.
-    if (newTopology.equals(topology)) {
+    if (!topologiesAreEqual(newTopology, topology)) {
       topology = newTopology;
-      renderTopology(newTopology);
+      render(newTopology);
       broadcastTopology(newTopology);
     }
   }
 
   function broadcastTopology() {
-    webrtc.sendDirectlyToAll(ROOM, TOPOLOGY, {
-      leader: leader,
-      topology: topology,
-    });
+    webrtc.sendDirectlyToAll(ROOM, TOPOLOGY, topology);
   }
 
   // Called when a process receives a topology update.
-  function onTopologyUpdate(payload) {
+  function onTopologyUpdate(newTopology) {
     // 1. Remember the topology.
-    leader = payload.leader;
-    topology = payload.topology;
+    topology = newTopology;
 
-    Utility.log('The leader is now ' + leader);
+    Utility.log('The leader is now ' + topology.leader);
 
     // 2. Update the state of the view by adding on the list of
     // players from the topology
-    renderPlayers(topology);
+    render(topology);
   }
 
   // === Turn and state functions ===
@@ -315,17 +331,17 @@ var Network = (function () {
   //   a Gotcha call.
 
   function onTurnMessage(payload) {
-    var newState = data.payload.newState;
-    var turnType = data.payload.turnType;
+    var newState = payload.newState;
+    var turnType = payload.turnType;
     Utility.assert(newState.turnOwner === myPid,
         'received a turn with the wrong pid');
 
     // Update our local state
-    Application.onUpdate(data.payload.newState);
+    Application.onUpdate(payload.newState);
 
     // Broadcast the state to everyone now that we know we have
     // successfully made it to our turn
-    webrtc.sendDirectlyToAll(ROOM, STATE, data.payload.newState);
+    webrtc.sendDirectlyToAll(ROOM, STATE, payload.newState);
 
     // If we got skipped, give the turn to the next person,
     // otherwise take our turn.
@@ -362,8 +378,5 @@ var Network = (function () {
     endTurn: endTurn,
     requestStart: requestStart,
     sendToPid: sendToPid,
-    get leader() {
-      return leader;
-    },
   };
 })();
