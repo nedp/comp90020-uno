@@ -23,10 +23,8 @@ var Application = (function () {
   // they're ready to start the game.
   // This allows players to wait until we have agreed that everyone is
   // ready before starting the game.
-  // NOTE: This doesn't wait for all participants to be ready; as soon
-  // as the first participant hits the button, the game will start.
   function readyUp() {
-    Network.requestStart();
+    Network.readyUp();
   }
 
   // === Turn and state functions ===

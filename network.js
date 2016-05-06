@@ -14,7 +14,7 @@ var Network = (function () {
   var TOPOLOGY = 'top';
   var TURN = 'turn';
   var STATE = 'state';
-  var ASK_INITIALISE = 'ask-init';
+  var READY = 'ask-init';
   var INITIALISE = 'init';
   var PREINITIALISED = 'pre-init';
 
@@ -28,6 +28,7 @@ var Network = (function () {
   var direction = FORWARD;
   // The leader permanently holds the lock on the topology.
   var topology;
+  var readySet = {};
 
   // Returns true if the topologies have the same leader, players,
   // and order of the players in both directions.
@@ -171,7 +172,7 @@ var Network = (function () {
     Utility.log('My myPid is ' + myPid);
 
     webrtc.joinRoom(ROOM);
-    webrtc.sendDirectlyToAll(ROOM, ASK_INITIALISE);
+    webrtc.sendDirectlyToAll(ROOM, READY);
     // TODO Replace dodgy busy wait with something good.
 
     webrtc.on('channelMessage', function (peer, room, data, other) {
@@ -191,20 +192,33 @@ var Network = (function () {
           Application.onUpdate(data.payload);
           break;
 
-        case ASK_INITIALISE:
-          Utility.logMessage(peer, 'ASK_INITIALISE', data.payload);
+        case READY:
+          Utility.logMessage(peer, 'READY', data.payload);
           if (isInitialised) {
             peer.sendDirectly(ROOM, PREINITIALISED, topology);
           } else {
-            initialise();
-            Application.initialise();
-            peer.sendDirectly(ROOM, INITIALISE);
+            readySet[peer.id] = true;
+            console.log(readySet);
+
+            // TODO don't cheat
+            var peers = webrtc.getPeers();
+            var pids =
+              [myPid].concat(peers.map(function(p) { return p.id; }));
+            var mayInitialise = pids.every(function(pid) {
+              return readySet[pid];
+            });
+            if (mayInitialise) {
+              initialise();
+              Application.initialise();
+              peer.sendDirectly(ROOM, INITIALISE);
+            }
           }
           break;
 
         case INITIALISE:
           // TODO convert INITIALISE related logic into something better.
           Utility.logMessage(peer, 'INITIALISE', data.payload);
+          if (isInitialised) break;
           initialise();
           Application.initialise();
           break;
@@ -227,11 +241,12 @@ var Network = (function () {
   });
 
   // Called when the player readies up.
-  function requestStart() {
+  function readyUp() {
+    readySet[myPid] = true;
     // TODO convert INITIALISE related logic into something better.
     var peers = webrtc.getPeers();
     if (peers.length !== 0) {
-      webrtc.sendDirectlyToAll(ROOM, ASK_INITIALISE);
+      webrtc.sendDirectlyToAll(ROOM, READY);
     }
   }
 
@@ -391,7 +406,7 @@ var Network = (function () {
 
   return {
     endTurn: endTurn,
-    requestStart: requestStart,
+    readyUp: readyUp,
     sendToPid: sendToPid,
   };
 })();
