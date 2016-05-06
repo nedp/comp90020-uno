@@ -48,8 +48,6 @@ var Application = (function () {
 
   // Called when another process sends us a state update.
   function onUpdate(newState) {
-    console.log(newState);// TODO
-    console.log(GameState);// TODO
     // 1. Ensure that the turn order is logically consistent
     //    with respect to the happened-before relationship.
     Utility.assert(newState.turnsTaken >= GameState.turnsTaken,

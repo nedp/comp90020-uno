@@ -14,6 +14,7 @@ var Network = (function () {
   var TOPOLOGY = 'top';
   var TURN = 'turn';
   var STATE = 'state';
+  var ASK_INITIALISE = 'ask-init';
   var INITIALISE = 'init';
   var PREINITIALISED = 'pre-init';
 
@@ -124,6 +125,7 @@ var Network = (function () {
     // Before initialisation there is no leader, so each process
     // should compute and display its own player list.
     if (!isInitialised) {
+      console.log(generateTopology());
       render(generateTopology());
     }
   });
@@ -161,12 +163,7 @@ var Network = (function () {
       Application.onFirstTurn(myPid);
     }
 
-    // All processes should periodically check on the topology
-    // if they are the leader.
-    window.setInterval(function () {
-      console.log(topology);
-      if (topology.leader === myPid) checkTopology();
-    }, TOPOLOGY_INTERVAL_MILLISECONDS);
+    onJoin();
   }
 
   webrtc.on('readyToCall', function () {
@@ -174,7 +171,7 @@ var Network = (function () {
     Utility.log('My myPid is ' + myPid);
 
     webrtc.joinRoom(ROOM);
-    webrtc.sendDirectlyToAll(ROOM, INITIALISE);
+    webrtc.sendDirectlyToAll(ROOM, ASK_INITIALISE);
     // TODO Replace dodgy busy wait with something good.
 
     webrtc.on('channelMessage', function (peer, room, data, other) {
@@ -194,14 +191,10 @@ var Network = (function () {
           Application.onUpdate(data.payload);
           break;
 
-        case INITIALISE:
-          // TODO convert INITIALISE related logic into something better.
-          Utility.logMessage(peer, 'INITIALISE', data.payload);
+        case ASK_INITIALISE:
+          Utility.logMessage(peer, 'ASK_INITIALISE', data.payload);
           if (isInitialised) {
-            peer.sendDirectly(ROOM, PREINITIALISED);
-            if (topology.leader === myPid) {
-              broadcastTopology();
-            }
+            peer.sendDirectly(ROOM, PREINITIALISED, topology);
           } else {
             initialise();
             Application.initialise();
@@ -209,10 +202,22 @@ var Network = (function () {
           }
           break;
 
+        case INITIALISE:
+          // TODO convert INITIALISE related logic into something better.
+          Utility.logMessage(peer, 'INITIALISE', data.payload);
+          initialise();
+          Application.initialise();
+          break;
+
         case PREINITIALISED:
           // TODO convert INITIALISE related logic into something better.
           Utility.logMessage(peer, 'PREINITIALISED', data.payload);
-          // TODO Register with the leader.
+          if (!isInitialised) {
+            isInitialised = true;
+            onJoin();
+            Application.initialise();
+          }
+          // TODO Register with the leader
           break;
 
         default:
@@ -226,7 +231,7 @@ var Network = (function () {
     // TODO convert INITIALISE related logic into something better.
     var peers = webrtc.getPeers();
     if (peers.length !== 0) {
-      webrtc.sendDirectlyToAll(ROOM, INITIALISE);
+      webrtc.sendDirectlyToAll(ROOM, ASK_INITIALISE);
     }
   }
 
@@ -267,8 +272,12 @@ var Network = (function () {
 
   // Called when this process joins an existing game.
   function onJoin() {
-    // TODO
-    // 1. Request the current topology, and to join it.
+    console.log('topology on join: ' + topology);
+    // All processes should periodically check on the topology
+    // if they are the leader.
+    window.setInterval(function () {
+      if (topology.leader === myPid) checkTopology();
+    }, TOPOLOGY_INTERVAL_MILLISECONDS);
   }
 
   // Called at the leader process when a processs tries to join.
@@ -291,7 +300,12 @@ var Network = (function () {
 
     // 2. Remember and broadcast the new topology if it is different.
     if (!topologiesAreEqual(newTopology, topology)) {
-      topology = newTopology;
+      // If someone else is the new leader, then I wait until they
+      // acknowledge it with their own topology broadcast before
+      // I stop acting as the leader.
+      if (newTopology.leader === myPid) {
+        topology = newTopology;
+      }
       render(newTopology);
       broadcastTopology(newTopology);
     }
@@ -303,6 +317,7 @@ var Network = (function () {
 
   // Called when a process receives a topology update.
   function onTopologyUpdate(newTopology) {
+    console.log('got topology ' + newTopology);
     // 1. Remember the topology.
     topology = newTopology;
 
