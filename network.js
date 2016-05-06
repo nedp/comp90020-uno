@@ -139,11 +139,6 @@ var Network = (function () {
     }
   }
 
-  // Turn types.
-  var TurnType = {
-    NORMAL: 'normal',
-    SKIP: 'skip',
-  };
   webrtc.on('readyToCall', function () {
     myPid = webrtc.connection.connection.id;
     Utility.log('My myPid is ' + myPid);
@@ -183,7 +178,7 @@ var Network = (function () {
           if (turnType === TurnType.SKIP) {
             endTurn(turnType.NORMAL, newState);
           } else {
-            assertEquals(TurnType.NORMAL, turnType,
+            Utility.assertEquals(TurnType.NORMAL, turnType,
                 'turns must have a known type');
             Application.onTurnReceived(newState);
           }

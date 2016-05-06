@@ -110,7 +110,7 @@ var Application = (function () {
     // 4. Pass the turn to the next process.
     // TODO base `type` on which card was played.
     // TODO Wait for an ack.
-    var turnType = NORMAL;
+    var turnType = TurnType.NORMAL;
     Network.endTurn(turnType, newState);
     newState.isMyTurn = false;
 
