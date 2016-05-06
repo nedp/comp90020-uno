@@ -187,8 +187,3 @@ var Application = (function () {
     onGotchaMessage: onGotchaMessage,
   };
 })();
-
-console.log(Application);
-
-document.addEventListener('DOMContentLoaded', function () {
-});

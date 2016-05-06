@@ -21,6 +21,7 @@ var Network = (function () {
   var myPid;
 
   // Constants and state related to the topology.
+  var TOPOLOGY_INTERVAL_MILLISECONDS = 1000;
   var FORWARD = 'fwrd';
   var BACKWARD = 'back';
   var direction = FORWARD;
@@ -37,9 +38,14 @@ var Network = (function () {
     var peers = webrtc.getPeers();
     var pids = [myPid].concat(peers.map(function (p) { return p.id; }));
 
+    // TODO Set all PENDING processs to be LIVE.
+    //      Processes may be either PENDING, LIVE, or DEAD.
+    //      DEAD processes must register with the leader to become PENDING.
+    //      On the leader's turn, PENDING processes become LIVE again.
+
     // Completely recalculate the topology.
     // TODO Optimise to only recalculate stuff that changes.
-    topology = {};
+    var topology = { leader: pids[0]; };
 
     // Create the 'forward' topology based on the peer list.
     topology[FORWARD] = {};
@@ -60,8 +66,7 @@ var Network = (function () {
         Object.keys(topology[FORWARD]), Object.keys(topology[BACKWARD]),
         'forwards and backwards topologies must have the same pids');
 
-    // O(n) but doesn't matter because rendering logic is O(n) anyway.
-    renderPlayers(topology);
+    return topology;
   }
 
   function renderPlayers(topology) {
@@ -98,12 +103,18 @@ var Network = (function () {
   webrtc.on('createdPeer', function (peer) {
     pidMap[peer.id] = peer;
 
+    // Before initialisation there is no leader, so each process
+    // should compute and display its own player list.
     if (!isInitialised) {
       generateTopology();
-
-      // Add on the list of players from the topology
       renderPlayers(topology);
     }
+
+    // All processes should periodically check on the topology
+    // if they are the leader.
+    window.setInterval(function () {
+      if (leader === myPid) checkTopology();
+    }, TOPOLOGY_INTERVAL_MILLISECONDS);
   });
 
   function sendToPid(targetPid, room, type, message) {
@@ -133,8 +144,8 @@ var Network = (function () {
 
     // Give the first turn to the leader.
     if (leader === myPid) {
-      Utility.log('It\'s my turn first!');
-      onLeaderTurn();
+      Utility.log("It's my turn first!");
+      checkTopology();
       Application.onFirstTurn(myPid);
     }
   }
@@ -156,33 +167,7 @@ var Network = (function () {
 
         case TURN:
           Utility.logMessage(peer, 'TURN', data.payload);
-
-          var newState = data.payload.newState;
-          var turnType = data.payload.turnType;
-          Utility.assert(newState.turnOwner === myPid,
-              'received a turn with the wrong pid');
-
-          // Update our local state
-          Application.onUpdate(data.payload.newState);
-
-          // Broadcast the state to everyone now that we know we have
-          // successfully made it to our turn
-          webrtc.sendDirectlyToAll(ROOM, STATE, data.payload.newState);
-
-          if (leader === myPid) {
-            onLeaderTurn();
-          }
-
-          // If we got skipped, give the turn to the next person,
-          // otherwise take our turn.
-          if (turnType === TurnType.SKIP) {
-            endTurn(turnType.NORMAL, newState);
-          } else {
-            Utility.assertEquals(TurnType.NORMAL, turnType,
-                'turns must have a known type');
-            Application.onTurnReceived(newState);
-          }
-
+          onTurnMessage(data.payload);
           break;
 
         case STATE:
@@ -274,24 +259,22 @@ var Network = (function () {
     // 2. Broadcast the new topology.
   }
 
-  // Called at the leader process before taking a turn.
-  function onLeaderTurn() {
-    Utility.log('Taking turn as leader.');
+  // If this process is the current leader, recomputes the topology.
+  // If it has changed, the view is updated accordingly and everyone
+  // is notified.
+  function checkTopology() {
+    assertEquals(leader, myPid, 'only the leader may check the topology');
+    Utility.log("Checking the topology since I'm the leader");
 
-    // TODO 1. Set all PENDING processs to be LIVE.
-    //         Processes may be either PENDING, LIVE, or DEAD.
-    //         DEAD processes must register with the leader to become PENDING.
-    //         On the leader's turn, DEAD processes become LIVE again.
+    // 1. Generate the new topology.
+    var newTopology = generateTopology(pids);
 
-    // Until registration and process states are implemented, just cheat
-    // by getting a peer list from webrtc.
-    var peers = webrtc.getPeers();
-    var pids = [myPid].concat(peers.map(function (p) { return p.id; }));
-    generateTopology(pids);
-    leader = pids[0];
-
-    // 2. Broadcast the new topology.
-    broadcastTopology();
+    // 2. Remember and broadcast the new topology if it is different.
+    if (newTopology.equals(topology)) {
+      topology = newTopology;
+      renderTopology(newTopology);
+      broadcastTopology(newTopology);
+    }
   }
 
   function broadcastTopology() {
@@ -331,6 +314,30 @@ var Network = (function () {
   //   left but haven't yet called Uno, so are vulnerable to
   //   a Gotcha call.
 
+  function onTurnMessage(payload) {
+    var newState = data.payload.newState;
+    var turnType = data.payload.turnType;
+    Utility.assert(newState.turnOwner === myPid,
+        'received a turn with the wrong pid');
+
+    // Update our local state
+    Application.onUpdate(data.payload.newState);
+
+    // Broadcast the state to everyone now that we know we have
+    // successfully made it to our turn
+    webrtc.sendDirectlyToAll(ROOM, STATE, data.payload.newState);
+
+    // If we got skipped, give the turn to the next person,
+    // otherwise take our turn.
+    if (turnType === TurnType.SKIP) {
+      endTurn(turnType.NORMAL, newState);
+    } else {
+      Utility.assertEquals(TurnType.NORMAL, turnType,
+          'turns must have a known type');
+      Application.onTurnReceived(newState);
+    }
+  }
+
   // Ends the current player's turn, checks the topology to find
   // the next player, then sends the turn to the next player.
   function endTurn(turnType, newState) {
@@ -360,7 +367,3 @@ var Network = (function () {
     },
   };
 })();
-
-document.addEventListener('DOMContentLoaded', function () {
-  'use strict';
-});
