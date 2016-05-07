@@ -10,16 +10,16 @@ var CardFetcher = (function () {
     WILDDRAW4: 'wd',
   };
 
-  var SUITES = {
+  var SUIT = {
     RED: 'r',
     GREEN: 'g',
     YELLOW: 'y',
     BLUE: 'b',
   };
 
-  function fetchCard(cardChance) {
+  function fetchCard() {
     // get a random number between 0 and 107
-    // var cardChance = parseInt(Math.random() * 108);
+    var cardChance = Math.floor(Math.random() * 108);
 
     // card with attributes to be defined
     var card = {
@@ -30,7 +30,7 @@ var CardFetcher = (function () {
 
     // decide on the colour of the card, only relevant for numbers and specials
     if (cardChance < 100) {
-      card.suite = SUITES[Object.keys(SUITES)[cardChance % 4]];
+      card.suite = SUIT[Object.keys(SUIT)[cardChance % 4]];
     }
     // enumerate all the coloured cards numbers, special coloured card types,
     // zeros and wilds
@@ -61,6 +61,6 @@ var CardFetcher = (function () {
   return {
     fetchCard: fetchCard,
     CARDTYPES: CARDTYPES,
-    SUITES: SUITES,
+    SUIT: SUIT,
   };
 })();
