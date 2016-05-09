@@ -32,6 +32,22 @@ var CardFetcher = (function () {
     return url;
   }
 
+  function fromUrl(url) {
+    if (url && url.split) {
+      var parts = url.split('-');
+      var card = {
+        suite: parts[1] || null,
+        number: parts[2] || null,
+        type: parts[0] || null,
+        toUrl: toUrl,
+      };
+
+      return card;
+    } else {
+      return null;
+    }
+  }
+
   function fetchCard() {
     // get a random number between 0 and 107
     var cardChance = Math.floor(Math.random() * 108);
@@ -76,6 +92,7 @@ var CardFetcher = (function () {
   // public interface for CardFetcher
   return {
     fetchCard: fetchCard,
+    fromUrl: fromUrl,
     CARDTYPES: CARDTYPES,
     SUIT: SUIT,
   };

@@ -32,11 +32,18 @@ var GameView = React.createClass({
                       </div>;
     }
 
+    // the cards in my hand
     var myHandCards = [];
     var idx = 0;
     this.state.myHand.forEach(function (card) {
       myHandCards.push(<CardView key={idx++ + card.toUrl()} card={card}></CardView>);
     });
+
+    // show the top card if it's there
+    var topCard = null;
+    if (this.state.topCard) {
+      topCard = <CardView card={this.state.topCard}></CardView>;
+    }
 
     return <div>
              <div class='stateDiv'>
@@ -45,6 +52,10 @@ var GameView = React.createClass({
              { TurnButton }
              { ReadyUpButton }
              <div>{players}</div>
+             <div>{topCard}</div>
+             <div class='topCard'>
+               {}
+             </div>
              <div class='myHand'>
                { myHandCards }
              </div>

@@ -5,6 +5,7 @@ var GameView = React.createClass({
   getInitialState: function () {
     return { message: 'Game initialising', myHand: [] };
   },
+
   // render function for the view
   render: function () {
     var players = [];
@@ -40,11 +41,18 @@ var GameView = React.createClass({
       );
     }
 
+    // the cards in my hand
     var myHandCards = [];
     var idx = 0;
     this.state.myHand.forEach(function (card) {
       myHandCards.push(React.createElement(CardView, { key: idx++ + card.toUrl(), card: card }));
     });
+
+    // show the top card if it's there
+    var topCard = null;
+    if (this.state.topCard) {
+      topCard = React.createElement(CardView, { card: this.state.topCard });
+    }
 
     return React.createElement(
       'div',
@@ -63,6 +71,12 @@ var GameView = React.createClass({
         null,
         players
       ),
+      React.createElement(
+        'div',
+        null,
+        topCard
+      ),
+      React.createElement('div', { 'class': 'topCard' }),
       React.createElement(
         'div',
         { 'class': 'myHand' },

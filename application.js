@@ -6,6 +6,7 @@ var Application = (function () {
   var GameState = {
     isInitialised: false,
     turnOwner: null,
+    topCard: null,
     turnsTaken: 0,
   };
 
@@ -56,21 +57,31 @@ var Application = (function () {
 
   // Called when another process sends us a state update.
   function onUpdate(newState) {
-    console.log(newState);// TODO
-    console.log(GameState);// TODO
+    // console.log(newState);// TODO
+    // console.log(GameState);// TODO
     // 1. Ensure that the turn order is logically consistent
     //    with respect to the happened-before relationship.
     Utility.assert(newState.turnsTaken >= GameState.turnsTaken,
         'turnsTaken must monotonically increase; new: ' + newState.turnsTaken +
         '; old: ' + GameState.turnsTaken);
-    GameState = newState;
+
+    // object for view-specific variables that need to be processed
+    // before sending to the view
+    var newViewState = {};
+
+    // convert the topCard into a card (not a url)
+    if (newState.topCard) {
+      newViewState.topCard = CardFetcher.fromUrl(newState.topCard);
+    }
 
     // 2. In the view, update:
     //     * Card pile
     //     * Player's hand
     //     * Other player's hand sizes
-    RootComponent.setState(LocalState);
-    RootComponent.setState(newState);
+    var combinedState = {};
+    Object.assign(combinedState, LocalState, newState, newViewState);
+    console.log(combinedState);
+    RootComponent.setState(combinedState);
 
     // TODO
     // 3. If a player has won, display their victory.
@@ -88,6 +99,13 @@ var Application = (function () {
 
   function onFirstTurn(pid) {
     GameState.turnOwner = pid;
+
+    // create the top card on the deck
+    GameState.topCard = CardFetcher.fetchCard().toUrl();
+
+    // update the view
+    onUpdate(GameState);
+
     RootComponent.setState({isMyTurn: true});
   }
 
