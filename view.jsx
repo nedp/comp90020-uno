@@ -6,9 +6,13 @@ var GameView = React.createClass({
   // render function for the view
   render: function () {
     var players = [];
+    var cntPlayers = 0;
     if (this.state.players) {
       this.state.players.forEach(function (value) {
-        players.push(<PlayerView key={value} playerId={value} game={this.state}></PlayerView>);
+        players.push(<PlayerView key={value}
+                                 takingTurn={this.state.turnOwner === value}
+                                 playerId={value}
+                                 idx={++cntPlayers}></PlayerView>);
       }.bind(this));
     }
 
@@ -24,20 +28,38 @@ var GameView = React.createClass({
       ReadyUpButton = <div>Finding peers... Share the URL!</div>;
     }
 
-    var TurnButton = '';
-    if (this.state.isInitialised && this.state.isMyTurn) {
-      TurnButton = <div onClick={Application.onTurnTaken}
-                           className="btn btn-primary">
-                        Take a turn!
+    var DrawButton = '';
+    if (this.state.isInitialised &&
+        this.state.isMyTurn &&
+        !this.state.requestSpecial) {
+      DrawButton = <div onClick={Application.pickupCard}
+                           className="btn btn-primary turnButton">
+                        Pick up card
                       </div>;
     }
 
-    // the cards in my hand
+    var cancelSuiteSelection = null;
     var myHandCards = [];
     var idx = 0;
-    this.state.myHand.forEach(function (card) {
-      myHandCards.push(<CardView key={idx++ + card.toUrl()} card={card}></CardView>);
-    });
+    if (this.state.requestSpecial) {
+      // the suite selection of the wild card I am playing
+      var card = CardFetcher.fromUrl(this.state.requestSpecial.type);
+      Object.keys(CardFetcher.SUIT).forEach(function (suite) {
+        var specificCard = CardFetcher.create(card.type, CardFetcher.SUIT[suite]);
+        myHandCards.push(<CardView key={idx++ + specificCard.toUrl()}
+                                   card={specificCard}></CardView>);
+      });
+      // special button for cancelling the suite selection
+      cancelSuiteSelection = <div onClick={Application.cancelSuiteSelection}
+                                  className='btn btn-default'>
+                               Cancel Selection
+                             </div>;
+    } else {
+      // the cards in my hand
+      this.state.myHand.forEach(function (card) {
+        myHandCards.push(<CardView key={idx++ + card.toUrl()} card={card}></CardView>);
+      });
+    }
 
     // show the top card if it's there
     var topCard = null;
@@ -46,18 +68,22 @@ var GameView = React.createClass({
     }
 
     return <div>
-             <div class='stateDiv'>
-               State: {JSON.stringify(this.state)}!
+             <h4>Players</h4>
+             <div>
+               {players}
              </div>
-             { TurnButton }
              { ReadyUpButton }
-             <div>{players}</div>
-             <div>{topCard}</div>
-             <div class='topCard'>
-               {}
+             <h4>Top Card</h4>
+             <div className='topCard'>
+               {topCard}
+               { DrawButton }
              </div>
-             <div class='myHand'>
+             <h4>Current Hand</h4>
+             <div className={'myHand' +
+                             (this.state.requestSpecial ? ' specialPicker' : '') +
+                             (this.state.isMyTurn ? '  isMyTurn' : ' isNotMyTurn')}>
                { myHandCards }
+               { cancelSuiteSelection }
              </div>
            </div>;
   },
@@ -65,19 +91,19 @@ var GameView = React.createClass({
 
 var CardView = React.createClass({
   render: function () {
-    return <img src={'cards/' + this.props.card.toUrl() + '.svg'} className='card'></img>;
+    return <img src={'cards/' + this.props.card.toUrl() + '.svg'}
+                onClick={Application.playCard.bind(undefined, this.props.card)}
+                className='card'>
+          </img>;
   },
 });
 
 var PlayerView = React.createClass({
   render: function () {
-    var playerClass = 'notTakingTurn';
-    if (this.props.game.whosTurn && this.props.playerId === this.props.game.whosTurn) {
-      playerClass = 'takingTurn';
-    }
+    var playerClass = this.props.takingTurn ? 'takingTurn' : 'notTakingTurn';
 
     return <div>
-             <p className={playerClass}>{this.props.playerId}</p>
+             <p className={playerClass}>Player {this.props.idx} ({this.props.playerId})</p>
            </div>;
   },
 });

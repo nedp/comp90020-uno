@@ -32,12 +32,21 @@ var CardFetcher = (function () {
     return url;
   }
 
+  function create(type, suite, number) {
+    return {
+      type: type,
+      suite: suite || null,
+      number: (number !== undefined) ? number : null,
+      toUrl: toUrl,
+    };
+  }
+
   function fromUrl(url) {
     if (url && url.split) {
       var parts = url.split('-');
       var card = {
         suite: parts[1] || null,
-        number: parts[2] || null,
+        number: parts[2] ? parseInt(parts[2]) : null,
         type: parts[0] || null,
         toUrl: toUrl,
       };
@@ -91,6 +100,7 @@ var CardFetcher = (function () {
 
   // public interface for CardFetcher
   return {
+    create: create,
     fetchCard: fetchCard,
     fromUrl: fromUrl,
     CARDTYPES: CARDTYPES,

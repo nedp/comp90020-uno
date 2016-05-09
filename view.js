@@ -5,13 +5,16 @@ var GameView = React.createClass({
   getInitialState: function () {
     return { message: 'Game initialising', myHand: [] };
   },
-
   // render function for the view
   render: function () {
     var players = [];
+    var cntPlayers = 0;
     if (this.state.players) {
       this.state.players.forEach(function (value) {
-        players.push(React.createElement(PlayerView, { key: value, playerId: value, game: this.state }));
+        players.push(React.createElement(PlayerView, { key: value,
+          takingTurn: this.state.turnOwner === value,
+          playerId: value,
+          idx: ++cntPlayers }));
       }.bind(this));
     }
 
@@ -31,22 +34,40 @@ var GameView = React.createClass({
       );
     }
 
-    var TurnButton = '';
-    if (this.state.isInitialised && this.state.isMyTurn) {
-      TurnButton = React.createElement(
+    var DrawButton = '';
+    if (this.state.isInitialised && this.state.isMyTurn && !this.state.requestSpecial) {
+      DrawButton = React.createElement(
         'div',
-        { onClick: Application.onTurnTaken,
-          className: 'btn btn-primary' },
-        'Take a turn!'
+        { onClick: Application.pickupCard,
+          className: 'btn btn-primary turnButton' },
+        'Pick up card'
       );
     }
 
-    // the cards in my hand
+    var cancelSuiteSelection = null;
     var myHandCards = [];
     var idx = 0;
-    this.state.myHand.forEach(function (card) {
-      myHandCards.push(React.createElement(CardView, { key: idx++ + card.toUrl(), card: card }));
-    });
+    if (this.state.requestSpecial) {
+      // the suite selection of the wild card I am playing
+      var card = CardFetcher.fromUrl(this.state.requestSpecial.type);
+      Object.keys(CardFetcher.SUIT).forEach(function (suite) {
+        var specificCard = CardFetcher.create(card.type, CardFetcher.SUIT[suite]);
+        myHandCards.push(React.createElement(CardView, { key: idx++ + specificCard.toUrl(),
+          card: specificCard }));
+      });
+      // special button for cancelling the suite selection
+      cancelSuiteSelection = React.createElement(
+        'div',
+        { onClick: Application.cancelSuiteSelection,
+          className: 'btn btn-default' },
+        'Cancel Selection'
+      );
+    } else {
+      // the cards in my hand
+      this.state.myHand.forEach(function (card) {
+        myHandCards.push(React.createElement(CardView, { key: idx++ + card.toUrl(), card: card }));
+      });
+    }
 
     // show the top card if it's there
     var topCard = null;
@@ -58,29 +79,37 @@ var GameView = React.createClass({
       'div',
       null,
       React.createElement(
-        'div',
-        { 'class': 'stateDiv' },
-        'State: ',
-        JSON.stringify(this.state),
-        '!'
+        'h4',
+        null,
+        'Players'
       ),
-      TurnButton,
-      ReadyUpButton,
       React.createElement(
         'div',
         null,
         players
       ),
+      ReadyUpButton,
       React.createElement(
-        'div',
+        'h4',
         null,
-        topCard
+        'Top Card'
       ),
-      React.createElement('div', { 'class': 'topCard' }),
       React.createElement(
         'div',
-        { 'class': 'myHand' },
-        myHandCards
+        { className: 'topCard' },
+        topCard,
+        DrawButton
+      ),
+      React.createElement(
+        'h4',
+        null,
+        'Current Hand'
+      ),
+      React.createElement(
+        'div',
+        { className: 'myHand' + (this.state.requestSpecial ? ' specialPicker' : '') + (this.state.isMyTurn ? '  isMyTurn' : ' isNotMyTurn') },
+        myHandCards,
+        cancelSuiteSelection
       )
     );
   }
@@ -90,7 +119,9 @@ var CardView = React.createClass({
   displayName: 'CardView',
 
   render: function () {
-    return React.createElement('img', { src: 'cards/' + this.props.card.toUrl() + '.svg', className: 'card' });
+    return React.createElement('img', { src: 'cards/' + this.props.card.toUrl() + '.svg',
+      onClick: Application.playCard.bind(undefined, this.props.card),
+      className: 'card' });
   }
 });
 
@@ -98,10 +129,7 @@ var PlayerView = React.createClass({
   displayName: 'PlayerView',
 
   render: function () {
-    var playerClass = 'notTakingTurn';
-    if (this.props.game.whosTurn && this.props.playerId === this.props.game.whosTurn) {
-      playerClass = 'takingTurn';
-    }
+    var playerClass = this.props.takingTurn ? 'takingTurn' : 'notTakingTurn';
 
     return React.createElement(
       'div',
@@ -109,7 +137,11 @@ var PlayerView = React.createClass({
       React.createElement(
         'p',
         { className: playerClass },
-        this.props.playerId
+        'Player ',
+        this.props.idx,
+        ' (',
+        this.props.playerId,
+        ')'
       )
     );
   }
