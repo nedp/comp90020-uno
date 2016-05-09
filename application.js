@@ -9,12 +9,20 @@ var Application = (function () {
     turnsTaken: 0,
   };
 
+  // starting state of my player
+  var LocalState = {
+    myHand: [],
+  };
+
   // TODO convert INITIALISE related logic into something better.
   function initialise() {
     Utility.assert(!GameState.isInitialised, 'Application initialised twice');
     GameState.isInitialised = true;
 
     // TODO initialise the deck and hands
+    for (var x = 0; x < 7; x++) {
+      LocalState.myHand.push(CardFetcher.fetchCard());
+    }
 
     onUpdate(GameState);
   }
@@ -61,6 +69,7 @@ var Application = (function () {
     //     * Card pile
     //     * Player's hand
     //     * Other player's hand sizes
+    RootComponent.setState(LocalState);
     RootComponent.setState(newState);
 
     // TODO

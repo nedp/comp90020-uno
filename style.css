@@ -4,3 +4,6 @@
 .notTakingTurn {
   font-weight: normal;
 }
+.card {
+    margin-right: -100px;
+}

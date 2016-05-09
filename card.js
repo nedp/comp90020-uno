@@ -17,6 +17,21 @@ var CardFetcher = (function () {
     BLUE: 'b',
   };
 
+  // build the url-string (for looking up and identifying cards)
+  // keep it out of the fetchCard method to avoid creating it
+  // every time we fetch a card
+  function toUrl() {
+    var url = '';
+    url += this.type;
+    if (this.suite !== null) {
+      url += '-' + this.suite;
+      if (this.number !== null) {
+        url += '-' + this.number;
+      }
+    }
+    return url;
+  }
+
   function fetchCard() {
     // get a random number between 0 and 107
     var cardChance = Math.floor(Math.random() * 108);
@@ -26,6 +41,7 @@ var CardFetcher = (function () {
       suite: null,
       number: null,
       type: null,
+      toUrl: toUrl,
     };
 
     // decide on the colour of the card, only relevant for numbers and specials

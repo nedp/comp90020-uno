@@ -1,7 +1,7 @@
 var GameView = React.createClass({
   // initial state of the view
   getInitialState: function () {
-    return {message: 'Game initialising'};
+    return {message: 'Game initialising', myHand: []};
   },
   // render function for the view
   render: function () {
@@ -32,6 +32,12 @@ var GameView = React.createClass({
                       </div>;
     }
 
+    var myHandCards = [];
+    var idx = 0;
+    this.state.myHand.forEach(function (card) {
+      myHandCards.push(<CardView key={idx++ + card.toUrl()} card={card}></CardView>);
+    });
+
     return <div>
              <div class='stateDiv'>
                State: {JSON.stringify(this.state)}!
@@ -39,7 +45,16 @@ var GameView = React.createClass({
              { TurnButton }
              { ReadyUpButton }
              <div>{players}</div>
+             <div class='myHand'>
+               { myHandCards }
+             </div>
            </div>;
+  },
+});
+
+var CardView = React.createClass({
+  render: function () {
+    return <img src={'cards/' + this.props.card.toUrl() + '.svg'} className='card'></img>;
   },
 });
 

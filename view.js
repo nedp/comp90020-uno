@@ -3,7 +3,7 @@ var GameView = React.createClass({
 
   // initial state of the view
   getInitialState: function () {
-    return { message: 'Game initialising' };
+    return { message: 'Game initialising', myHand: [] };
   },
   // render function for the view
   render: function () {
@@ -40,6 +40,12 @@ var GameView = React.createClass({
       );
     }
 
+    var myHandCards = [];
+    var idx = 0;
+    this.state.myHand.forEach(function (card) {
+      myHandCards.push(React.createElement(CardView, { key: idx++ + card.toUrl(), card: card }));
+    });
+
     return React.createElement(
       'div',
       null,
@@ -56,8 +62,21 @@ var GameView = React.createClass({
         'div',
         null,
         players
+      ),
+      React.createElement(
+        'div',
+        { 'class': 'myHand' },
+        myHandCards
       )
     );
+  }
+});
+
+var CardView = React.createClass({
+  displayName: 'CardView',
+
+  render: function () {
+    return React.createElement('img', { src: 'cards/' + this.props.card.toUrl() + '.svg', className: 'card' });
   }
 });
 
