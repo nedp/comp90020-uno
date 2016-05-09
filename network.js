@@ -2,14 +2,17 @@
 var Network = (function () {
   'use strict';
 
+  // Decide which room to use based on the query string in the url.
+  // ``` ?room=name querystring parameter ```
+  // This allows multiple games to exist concurrently.
   var URL = window.location.href;
-  // decide on the rooom based on the ?room=name querystring parameter
   var ROOM = 'comp90020-uno-' + (URL.indexOf('room') > 0 ?
                                  URL.substr(URL.indexOf('room') + 5) :
                                  'everyone');
 
   var CHECK_INTERVAL = 2000;
 
+  // Message types.
   var TOPOLOGY = 'top';
   var TURN = 'turn';
   var STATE = 'state';
@@ -20,8 +23,15 @@ var Network = (function () {
   var NODE_FAIL = 'fail';
   var ZOMBIE_NODE = 'zombie';
 
+  // myPid uniquely identifies this process.
   var myPid;
-  var isInitialised = false;
+
+  // Constants and state related to the topology.
+  var FORWARD = 'fwrd';
+  var BACKWARD = 'back';
+  var direction = FORWARD;
+
+  // The leader permanently holds the lock on the topology.
   var leader = null;
   var topology = {};
   var failed = {};
@@ -35,17 +45,42 @@ var Network = (function () {
     };
 
   // Regenerate the topology, save it locally, and update the view.
+  // This generates the topology in both directions (which makes
+  // 'reverse' card logic easier).
   function generateTopology() {
+    // TODO use manual registration rather than WebRTC's peers.
     var peers = webrtc.getPeers();
     var pids = [myPid].concat(peers.map(function (p) { return p.id; }));
 
+    // Completely recalculate the topology.
+    // TODO Optimise to only recalculate stuff that changes.
     topology = {};
+
+    // Create the 'forward' topology based on the peer list.
+    topology[FORWARD] = {};
     pids.sort().forEach(function (pid, i) {
       var iNext = (i + 1 >= pids.length) ? 0 : i + 1;
-      topology[pid] = pids[iNext];
+      topology[FORWARD][pid] = pids[iNext];
     });
 
-    RootComponent.setState({ players: Object.keys(topology) });
+    // Create the 'backward' topology as the reverse of the
+    // forwards topology.
+    topology[BACKWARD] = {};
+    for (var first in topology[FORWARD]) {
+      var second = topology[FORWARD][first];
+      topology[BACKWARD][second] = first;
+    }
+
+    Utility.assertSameItems(
+        Object.keys(topology[FORWARD]), Object.keys(topology[BACKWARD]),
+        'forwards and backwards topologies must have the same pids');
+
+    // O(n) but doesn't matter because rendering logic is O(n) anyway.
+    renderPlayers(topology);
+  }
+
+  function renderPlayers(topology) {
+    RootComponent.setState({ players: Object.keys(topology[FORWARD]) });
   }
 
   var webrtc = new SimpleWebRTC({
@@ -82,7 +117,7 @@ var Network = (function () {
       generateTopology();
 
       // Add on the list of players from the topology
-      RootComponent.setState({ players: Object.keys(topology) });
+      renderPlayers(topology);
     }
   });
 
@@ -94,6 +129,7 @@ var Network = (function () {
   }
 
   // TODO convert INITIALISE related logic into something better.
+  var isInitialised = false;
   function initialise() {
     Utility.assert(!isInitialised, 'Network initialised twice');
     isInitialised = true;
@@ -157,7 +193,15 @@ var Network = (function () {
             onLeaderTurn();
           }
 
-          Application.onTurnReceived(turnType, newState);
+          // If we got skipped, give the turn to the next person,
+          // otherwise take our turn.
+          if (turnType === TurnType.SKIP) {
+            endTurn(turnType.NORMAL, newState);
+          } else {
+            Utility.assertEquals(TurnType.NORMAL, turnType,
+                'turns must have a known type');
+            Application.onTurnReceived(newState);
+          }
 
           break;
 
@@ -198,20 +242,30 @@ var Network = (function () {
           break;
 
         case NODE_FAIL:
+          Utility.logMessage(peer, 'NODE_FAIL', data.payload);
           if (leader === myPid) {
-            handleNodeFailure(peer.id, data.payload);
+            // Tell all nodes that the node has failed
+            webrtc.sendDirectlyToAll(ROOM, NODE_REMOVE,
+                                     { failedPid: failedPid });
+            // Take side effects out here
+            topology = handleNodeFailure(peer.id, data.payload, topology);
+            failed[failedPid] = true;
+            broadcastTopology();
           }
           break;
 
         case NODE_REMOVE:
+          Utility.logMessage(peer, 'NODE_REMOVE', data.payload);
           failed[data.payload.failedPid] = true;
           break;
 
         case ZOMBIE_NODE:
+          Utility.logMessage(peer, 'ZOMBIE_NODE', data.payload);
           if (leader === myPid) {
             // TODO Rejoin the Zombie into the game
             // by issuing a topology message
           }
+          break;
 
         default:
           throw 'incomplete branch coverage in message handler switch statement';
@@ -316,7 +370,7 @@ var Network = (function () {
 
     // 2. Update the state of the view by adding on the list of
     // players from the topology
-    RootComponent.setState({ players: Object.keys(topology) });
+    renderPlayers(topology);
   }
 
   // === Turn and state functions ===
@@ -336,16 +390,15 @@ var Network = (function () {
   //   left but haven't yet called Uno, so are vulnerable to
   //   a Gotcha call.
 
+  // Ends the current player's turn, checks the topology to find
+  // the next player, then sends the turn to the next player.
   function endTurn(turnType, newState) {
-    console.log(myPid);
-    console.log(turnType);
-    console.log(newState);
-
     Utility.assert(newState.turnOwner === myPid,
         "tried to take a turn when it's not our turn");
-    newState.turnOwner = topology[myPid];
 
-    sendToPid(topology[myPid], ROOM, TURN, {
+    var nextPlayer = topology[direction][myPid];
+    newState.turnOwner = nextPlayer;
+    sendToPid(nextPlayer, ROOM, TURN, {
       turnType: turnType,
       newState: newState,
     });
@@ -356,12 +409,6 @@ var Network = (function () {
   // Not sure what the approach is here.
   //
   // Maybe handle it with a decorator around SimpleWebRTC?
-  
-  // Begin the timed neighbour checking protocol
-  // This is a more descriptive alias for resetNeighbourCheck
-  function startNeighbourCheck(neighbour) {
-    resetNeighbourCheck(neighbour);
-  }
   
   // Ping the next/neighbouring node to find out if it's alive
   // If they haven't responded since last ping, assume they have failed
@@ -379,7 +426,7 @@ var Network = (function () {
   }
 
   // Override waiting for neighbour response checking when topology changes
-  function resetNeighbourCheck(newNeighbour) {
+  function startNeighbourCheck(newNeighbour) {
     if (CheckState.checkIntervalHandler !== null) {
       clearInterval(CheckState.checkIntervalHandler);
     }
@@ -405,15 +452,11 @@ var Network = (function () {
   // 1        4  =>  1        X  =>  1      |
   //  \      /        \      /        \     |
   //   6 -- 5          6 -- 5          6 -- 5
-  function handleNodeFailure(reporterPid, failedPid) {
-    // Tell all nodes that the node has failed
-    webrtc.sendDirectlyToAll(ROOM, NODE_REMOVE, { failedPid: failedPid });
+  function handleNodeFailure(reporterPid, failedPid, topology) {
     // Delete the node from the topology, but remember in case it returns
     topology[reporterPid] = topology[failedPid];
-    delete topology.failedPid;
-    failed[failedPid] = true;
-    // Do we need to call generateTopology? That uses webRTC so maybe cheating?
-    broadcastTopology();
+    delete topology[failedPid];
+    return topology;
   }
 
   return {
