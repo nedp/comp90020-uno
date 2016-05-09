@@ -204,11 +204,14 @@ var Network = (function () {
           break;
 
         case NODE_REMOVE:
-          // TODO: Add logic here about ignoring the node here
-          // TODO: Add logic in message handler about handling messages
-          //       from a failed node; tell leader rather than handle message
           failed[data.payload.failedPid] = true;
           break;
+
+        case ZOMBIE_NODE:
+          if (leader === myPid) {
+            // TODO Rejoin the Zombie into the game
+            // by issuing a topology message
+          }
 
         default:
           throw 'incomplete branch coverage in message handler switch statement';
