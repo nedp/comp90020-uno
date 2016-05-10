@@ -50,7 +50,7 @@ var GameView = React.createClass({
                                    card={specificCard}></CardView>);
       });
       // special button for cancelling the suite selection
-      cancelSuiteSelection = <div onClick={Application.cancelSuiteSelection}
+      cancelSuiteSelection = <div onClick={Application.cancelSuitSelection}
                                   className='btn btn-default'>
                                Cancel Selection
                              </div>;

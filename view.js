@@ -58,7 +58,7 @@ var GameView = React.createClass({
       // special button for cancelling the suite selection
       cancelSuiteSelection = React.createElement(
         'div',
-        { onClick: Application.cancelSuiteSelection,
+        { onClick: Application.cancelSuitSelection,
           className: 'btn btn-default' },
         'Cancel Selection'
       );
