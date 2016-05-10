@@ -475,8 +475,10 @@ var Network = (function () {
   //   6 -- 5          6 -- 5          6 -- 5
   function handleNodeFailure(reporterPid, failedPid, topology) {
     // Delete the node from the topology, but remember in case it returns
-    topology[reporterPid] = topology[failedPid];
-    delete topology[failedPid];
+    [FORWARD, BACKWARD].forEach(function (direction, i) {
+      topology[direction][reporterPid] = topology[direction][failedPid];
+      delete topology[direction][failedPid];
+    });
   }
 
   return {
