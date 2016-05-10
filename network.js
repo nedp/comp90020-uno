@@ -214,6 +214,12 @@ var Network = (function () {
         case STATE:
           Utility.logMessage(peer, 'STATE', data.payload);
           Application.onUpdate(data.payload);
+
+          // in case we missed the initialise but joined the room since
+          if (!isInitialised) {
+            initialise();
+            Application.initialise();
+          }
           break;
 
         case INITIALISE:
@@ -366,6 +372,10 @@ var Network = (function () {
     });
   }
 
+  function broadcastState(newState) {
+    webrtc.sendDirectlyToAll(ROOM, STATE, newState);
+  }
+
   // Called when a process receives a topology update.
   function onTopologyUpdate(payload) {
     // 1. Remember the topology.
@@ -485,6 +495,7 @@ var Network = (function () {
     endTurn: endTurn,
     requestStart: requestStart,
     sendToPid: sendToPid,
+    broadcastState: broadcastState,
     get leader() {
       return leader;
     },
