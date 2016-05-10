@@ -43,7 +43,7 @@ var Network = (function () {
       neighbour:           null,
       checkTimeoutHandler: null,
       hasReceivedResponse: true,
-      checkInterval:       MAX_CHECK_INTERVAL,
+      checkInterval:       5000,
       lastPingTime:        null,
       failed:              {},
     };
@@ -247,14 +247,12 @@ var Network = (function () {
         case CHECK_RESP:
           Utility.logMessage(peer, 'CHECK_RESP', data.payload);
           receiveNeighbourResponse();
-          CheckState.checkTimeoutHandler = setTimeout(function () {
-            checkNeighbour();
-          }, CheckState.checkInterval);
           break;
 
         case NODE_FAIL:
           Utility.logMessage(peer, 'NODE_FAIL', data.payload);
           if (leader === myPid) {
+            alert('Removing ' + data.payload.failedPid);
             webrtc.sendDirectlyToAll(ROOM, NODE_REMOVE,
                                      { failedPid: data.payload.failedPid });
             handleNodeFailure(peer.id, data.payload.failedPid, topology);
@@ -434,6 +432,11 @@ var Network = (function () {
     CheckState.hasReceivedResponse = false;
     CheckState.lastPingTime = new Date();
     sendToPid(CheckState.neighbour, ROOM, CHECK);
+    
+    // Chain this call to the next
+    CheckState.checkTimeoutHandler = setTimeout(function () {
+      checkNeighbour();
+    }, CheckState.checkInterval);
   }
 
   // Document receipt of a ping response from a neighbour
@@ -459,7 +462,8 @@ var Network = (function () {
       clearTimeout(CheckState.checkTimeoutHandler);
     }
     CheckState.neighbour = newNeighbour;
-    checkNeighbour(newNeighbour);
+
+    checkNeighbour();
   }
 
   // Tell the leader that this node's neighbour has failed
