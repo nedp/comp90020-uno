@@ -10,7 +10,12 @@ var Network = (function () {
                                  URL.substr(URL.indexOf('room') + 5) :
                                  'everyone');
 
-  var CHECK_INTERVAL = 2000;
+  // Maximum time allowed between checks
+  var MAX_CHECK_INTERVAL = 30000;
+  // Minimum time between checks
+  var MIN_CHECK_INTERVAL = 2000;
+  // checkInterval == CHECK_FACTOR * responseTime
+  var CHECK_FACTOR = 3;
 
   // Message types.
   var TOPOLOGY = 'top';
@@ -39,9 +44,10 @@ var Network = (function () {
   var CheckState =
     {
       neighbour:  null,
-      checkIntervalHandler: null,
-      // Stop neighbour being removed from the ring on the first call
-      hasReceivedResponse: true
+      checkTimeoutHandler: null,
+      // true -> Stop neighbour being removed from the ring on the first call
+      hasReceivedResponse: true,
+      checkInterval: MAX_CHECK_INTERVAL,
     };
 
   // Regenerate the topology, save it locally, and update the view.
@@ -239,6 +245,9 @@ var Network = (function () {
         case CHECK_RESP:
           Utility.logMessage(peer, 'CHECK_RESP', data.payload);
           receiveNeighbourResponse();
+          setTimeout(function () {
+            checkNeighbour(peer.id);
+          }, CheckState.checkInterval);
           break;
 
         case NODE_FAIL:
@@ -363,7 +372,8 @@ var Network = (function () {
     leader = payload.leader;
     topology = payload.topology;
 
-    var neighbour = topology[myPid];
+    // TODO Decide if failure checks in forward topology are sufficient
+    var neighbour = topology[FORWARD][myPid];
     startNeighbourCheck(neighbour);
 
     Utility.log('The leader is now ' + leader);
@@ -415,24 +425,35 @@ var Network = (function () {
   function checkNeighbour(neighbourPid) {
     if (!CheckState.hasReceivedResponse) {
       handleNeighbourFailure();
+      return;
     }
     CheckState.hasReceivedResponse = false;
+    CheckState.checkInterval = new Date();
     sendToPid(neighbourPid, ROOM, CHECK);
   }
 
   // Document receipt of a ping response from a neighbour
   function receiveNeighbourResponse() {
     CheckState.hasReceivedResponse = true;
+    var newInterval = CHECK_FACTOR * (new Date() - CheckState.checkInterval);
+    if (newInterval < MAX_CHECK_INTERVAL) {
+      if (newInterval > MIN_CHECK_INTERVAL) {
+        CheckState.checkInterval = newInterval;
+      }
+      CheckState.checkInterval = MIN_CHECK_INTERVAL;
+    }
+    else {
+      CheckState.checkInterval = MAX_CHECK_INTERVAL;
+    }
   }
 
   // Override waiting for neighbour response checking when topology changes
   function startNeighbourCheck(newNeighbour) {
-    if (CheckState.checkIntervalHandler !== null) {
-      clearInterval(CheckState.checkIntervalHandler);
+    if (CheckState.checkTimeoutHandler !== null) {
+      clearTimeout(CheckState.checkTimeoutHandler);
     }
     CheckState.neighbour = newNeighbour;
-    CheckState.checkIntervalHandler =
-      setInterval(function () { checkNeighbour(newNeighbour); }, CHECK_INTERVAL);
+    checkNeighbour(newNeighbour);
   }
 
   // Tell the leader that this node's neighbour has failed
@@ -456,7 +477,6 @@ var Network = (function () {
     // Delete the node from the topology, but remember in case it returns
     topology[reporterPid] = topology[failedPid];
     delete topology[failedPid];
-    return topology;
   }
 
   return {
