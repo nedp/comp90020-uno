@@ -43,10 +43,10 @@ var GameView = React.createClass({
     var idx = 0;
     if (this.state.requestSpecial) {
       // the suite selection of the wild card I am playing
-      var card = CardFetcher.fromUrl(this.state.requestSpecial.type);
+      var card = CardFetcher.fromString(this.state.requestSpecial.type);
       Object.keys(CardFetcher.SUIT).forEach(function (suite) {
         var specificCard = CardFetcher.create(card.type, CardFetcher.SUIT[suite]);
-        myHandCards.push(<CardView key={idx++ + specificCard.toUrl()}
+        myHandCards.push(<CardView key={idx++ + specificCard.toString()}
                                    card={specificCard}></CardView>);
       });
       // special button for cancelling the suite selection
@@ -57,7 +57,7 @@ var GameView = React.createClass({
     } else {
       // the cards in my hand
       this.state.myHand.forEach(function (card) {
-        myHandCards.push(<CardView key={idx++ + card.toUrl()} card={card}></CardView>);
+        myHandCards.push(<CardView key={idx++ + card.toString()} card={card}></CardView>);
       });
     }
 
@@ -91,7 +91,7 @@ var GameView = React.createClass({
 
 var CardView = React.createClass({
   render: function () {
-    return <img src={'cards/' + this.props.card.toUrl() + '.svg'}
+    return <img src={'cards/' + this.props.card.toString() + '.svg'}
                 onClick={Application.playCard.bind(undefined, this.props.card)}
                 className='card'>
           </img>;
