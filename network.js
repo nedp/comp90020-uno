@@ -10,23 +10,23 @@ var Network = (function () {
                                  URL.substr(URL.indexOf('room') + 5) :
                                  'everyone');
 
-  // Maximum time allowed between checks
+  // Ceiling on time nodes have to respond to a ping
   var MAX_CHECK_INTERVAL = 30000;
-  // Minimum time between checks
+  // Minimum time nodes have to respond to a ping
   var MIN_CHECK_INTERVAL = 2000;
-  // checkInterval == CHECK_FACTOR * responseTime
-  var CHECK_FACTOR = 3;
+  // checkInterval == CHECK_FACTOR * previousResponseTime
+  var CHECK_FACTOR       = 3;
 
   // Message types.
-  var TOPOLOGY = 'top';
-  var TURN = 'turn';
-  var STATE = 'state';
-  var INITIALISE = 'init';
+  var TOPOLOGY       = 'top';
+  var TURN           = 'turn';
+  var STATE          = 'state';
+  var INITIALISE     = 'init';
   var PREINITIALISED = 'pre-init';
-  var CHECK = 'check';
-  var CHECK_RESP = 'resp';
-  var NODE_FAIL = 'fail';
-  var ZOMBIE_NODE = 'zombie';
+  var CHECK          = 'check';
+  var CHECK_RESP     = 'resp';
+  var NODE_FAIL      = 'fail';
+  var NODE_ZOMBIE    = 'zombie';
 
   // myPid uniquely identifies this process.
   var myPid;
@@ -35,20 +35,21 @@ var Network = (function () {
   var FORWARD = 'fwrd';
   var BACKWARD = 'back';
   var direction = FORWARD;
+  var topology;
+
+  // A state container for the node checking logic
+  var CheckState =
+    {
+      neighbour:           null,
+      checkTimeoutHandler: null,
+      hasReceivedResponse: true,
+      checkInterval:       MAX_CHECK_INTERVAL,
+      lastPingTime:        null,
+      failed:              {},
+    };
 
   // The leader permanently holds the lock on the topology.
   var leader = null;
-  var topology = {};
-  var failed = {};
-
-  var CheckState =
-    {
-      neighbour:  null,
-      checkTimeoutHandler: null,
-      // true -> Stop neighbour being removed from the ring on the first call
-      hasReceivedResponse: true,
-      checkInterval: MAX_CHECK_INTERVAL,
-    };
 
   // Regenerate the topology, save it locally, and update the view.
   // This generates the topology in both directions (which makes
@@ -169,11 +170,6 @@ var Network = (function () {
     // TODO Replace dodgy busy wait with something good.
 
     webrtc.on('channelMessage', function (peer, room, data, other) {
-      if (failed[peer.id]) {
-        sendToPid(leader, ROOM, ZOMBIE_NODE, { zombiePid: peer.id });
-        return;
-      }
-
       switch (data.type) {
         case TOPOLOGY:
           Utility.logMessage(peer, 'TOPOLOGY', data.payload);
@@ -251,34 +247,32 @@ var Network = (function () {
         case CHECK_RESP:
           Utility.logMessage(peer, 'CHECK_RESP', data.payload);
           receiveNeighbourResponse();
-          setTimeout(function () {
-            checkNeighbour(peer.id);
+          CheckState.checkTimeoutHandler = setTimeout(function () {
+            checkNeighbour();
           }, CheckState.checkInterval);
           break;
 
         case NODE_FAIL:
           Utility.logMessage(peer, 'NODE_FAIL', data.payload);
           if (leader === myPid) {
-            // Tell all nodes that the node has failed
             webrtc.sendDirectlyToAll(ROOM, NODE_REMOVE,
-                                     { failedPid: failedPid });
-            // Take side effects out here
-            topology = handleNodeFailure(peer.id, data.payload, topology);
-            failed[failedPid] = true;
+                                     { failedPid: data.payload.failedPid });
+            handleNodeFailure(peer.id, data.payload.failedPid, topology);
+            failed[data.payload.failedPid] = true;
             broadcastTopology();
           }
           break;
 
         case NODE_REMOVE:
-          Utility.logMessage(peer, 'NODE_REMOVE', data.payload);
-          failed[data.payload.failedPid] = true;
+          Utility.logMessage(peer, 'NODE_FAIL', data.payload);
+          GameState.failed[data.payload.failedPid] = true;
           break;
 
-        case ZOMBIE_NODE:
-          Utility.logMessage(peer, 'ZOMBIE_NODE', data.payload);
+        case NODE_ZOMBIE:
+          Utility.logMessage(peer, 'NODE_ZOMBIE', data.payload);
           if (leader === myPid) {
-            // TODO Rejoin the Zombie into the game
-            // by issuing a topology message
+            // TODO Rejoin the zombie node into the game
+            // by issuing a topology message (?)
           }
           break;
 
@@ -382,11 +376,11 @@ var Network = (function () {
     leader = payload.leader;
     topology = payload.topology;
 
-    // TODO Decide if failure checks in forward topology are sufficient
+    Utility.log('The leader is now ' + leader);
+
+    // TODO decide if failure checks in only forward topology are sufficient
     var neighbour = topology[FORWARD][myPid];
     startNeighbourCheck(neighbour);
-
-    Utility.log('The leader is now ' + leader);
 
     // 2. Update the state of the view by adding on the list of
     // players from the topology
@@ -429,28 +423,30 @@ var Network = (function () {
   // Not sure what the approach is here.
   //
   // Maybe handle it with a decorator around SimpleWebRTC?
-  
-  // Ping the next/neighbouring node to find out if it's alive
-  // If they haven't responded since last ping, assume they have failed
-  function checkNeighbour(neighbourPid) {
+
+  // Ping the assigned neighbour node to find out if it's alive
+  // If they haven't responded since last ping, assume failure
+  function checkNeighbour() {
     if (!CheckState.hasReceivedResponse) {
-      handleNeighbourFailure();
+      declareNeighbourFailure(CheckState.neighbour);
       return;
     }
     CheckState.hasReceivedResponse = false;
-    CheckState.checkInterval = new Date();
-    sendToPid(neighbourPid, ROOM, CHECK);
+    CheckState.lastPingTime = new Date();
+    sendToPid(CheckState.neighbour, ROOM, CHECK);
   }
 
   // Document receipt of a ping response from a neighbour
   function receiveNeighbourResponse() {
     CheckState.hasReceivedResponse = true;
-    var newInterval = CHECK_FACTOR * (new Date() - CheckState.checkInterval);
+    var newInterval = CHECK_FACTOR * (new Date() - CheckState.lastPingTime);
     if (newInterval < MAX_CHECK_INTERVAL) {
       if (newInterval > MIN_CHECK_INTERVAL) {
         CheckState.checkInterval = newInterval;
       }
-      CheckState.checkInterval = MIN_CHECK_INTERVAL;
+      else {
+        CheckState.checkInterval = MIN_CHECK_INTERVAL;
+      }
     }
     else {
       CheckState.checkInterval = MAX_CHECK_INTERVAL;
@@ -467,13 +463,13 @@ var Network = (function () {
   }
 
   // Tell the leader that this node's neighbour has failed
-  function handleNeighbourFailure() {
-    alert(CheckState.neighbour + ' has failed!');
-    Utility.log('*** NODE FAIL *** -- My neighbour ' +
+  function declareNeighbourFailure() {
+    alert(CheckState.neighbour + ' has failed');
+    Utility.log('*** NODE FAIL *** -- Neighbour ' +
                 CheckState.neighbour +
-                ' has failed!');
-    sendToPid(leader, ROOM, NODE_FAIL, CheckState.neighbour);
-    clearInterval(CheckState.checkIntervalHandler);
+                ' has failed');
+    sendToPid(leader, ROOM, NODE_FAIL, { failedPid: CheckState.neighbour });
+    clearTimeout(CheckState.checkTimeoutHandler);
   }
 
   // As the leader: handle the failure of a node
@@ -484,7 +480,7 @@ var Network = (function () {
   //  \      /        \      /        \     |
   //   6 -- 5          6 -- 5          6 -- 5
   function handleNodeFailure(reporterPid, failedPid, topology) {
-    // Delete the node from the topology, but remember in case it returns
+    // Delete the node from the topology but remember it in case it returns
     [FORWARD, BACKWARD].forEach(function (direction, i) {
       topology[direction][reporterPid] = topology[direction][failedPid];
       delete topology[direction][failedPid];
