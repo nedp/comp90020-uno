@@ -57,10 +57,8 @@ var Application = (function () {
 
   // Called when another process sends us a state update.
   function onUpdate(newState) {
-    console.log(newState);// TODO
-    console.log(GameState);// TODO
-    // 1. Ensure that the turn order is logically consistent
-    //    with respect to the happened-before relationship.
+    // Ensure that the turn order is logically consistent
+    // with respect to the happened-before relationship.
     Utility.assert(newState.turnsTaken >= GameState.turnsTaken,
         'turnsTaken must monotonically increase; new: ' + newState.turnsTaken +
         '; old: ' + GameState.turnsTaken);
@@ -70,13 +68,13 @@ var Application = (function () {
   }
 
   function updateView() {
-    // object for view-specific variables that need to be processed
-    // before sending to the view
+    // Object for view-specific variables that need to be processed
+    // before sending to the view.
     var newViewState = {};
 
-    // convert the topCard into a card (not a url)
+    // 1. Convert the topCard into a card (not a string).
     if (GameState.topCard) {
-      newViewState.topCard = CardFetcher.fromUrl(GameState.topCard);
+      newViewState.topCard = CardFetcher.fromString(GameState.topCard);
     }
 
     // 2. In the view, update:
@@ -102,7 +100,7 @@ var Application = (function () {
     LocalState.isMyTurn = true;
 
     // if the top card is a draw, draw the stated number of cards
-    var tc = CardFetcher.fromUrl(GameState.topCard);
+    var tc = CardFetcher.fromString(GameState.topCard);
     if (tc.type == CardFetcher.CARDTYPES.DRAW2) {
       onDraw(2);
     } else if (tc.type == CardFetcher.CARDTYPES.WILDDRAW4) {
@@ -116,7 +114,7 @@ var Application = (function () {
     GameState.turnOwner = pid;
 
     // create the top card on the deck
-    GameState.topCard = CardFetcher.fetchCard().toUrl();
+    GameState.topCard = CardFetcher.fetchCard().toString();
 
     // broadcast state to peers so they can see the top card
     Network.broadcastState(GameState);
@@ -187,7 +185,7 @@ var Application = (function () {
   // Called when a user attempts to play a card from their hand
   function playCard(card) {
     // get the card representation of the top card
-    var tc = CardFetcher.fromUrl(GameState.topCard);
+    var tc = CardFetcher.fromString(GameState.topCard);
 
     console.log(card);
     // see if the move was valid
@@ -199,14 +197,14 @@ var Application = (function () {
           (card.type !== CardFetcher.CARDTYPES.NUMBER &&
             card.type === card.type) ||
           (card.number !== null && card.number === tc.number) ||
-          (card.suite && card.suite === tc.suite)
+          (card.suit && card.suit === tc.suit)
         )) {
       Utility.log('Valid Move!');
 
-      // if it's a wild, turn the view into a suite selection
+      // if it's a wild, turn the view into a suit selection
       if ((card.type === CardFetcher.CARDTYPES.WILD ||
           card.type === CardFetcher.CARDTYPES.WILDDRAW4) &&
-          !card.suite) {
+          !card.suit) {
         LocalState.requestSpecial = card;
 
         updateView();
@@ -215,16 +213,16 @@ var Application = (function () {
 
       // remove the original card from their hand
       // in most cases this is the same card, but if it's a wild
-      // we want to find the wild with no suite attached to it
+      // we want to find the wild with no suit attached to it
       var originalCard = LocalState.requestSpecial || card;
       var cardIndex = LocalState.myHand.indexOf(originalCard);
       LocalState.myHand.splice(cardIndex, 1);
 
       // place the card on top
-      GameState.topCard = card.toUrl();
+      GameState.topCard = card.toString();
 
       // remove the special flag if it was set from above
-      // meaning the user has now chosen a suite for their wild
+      // meaning the user has now chosen a suit for their wild
       if (LocalState.requestSpecial) {
         LocalState.requestSpecial = null;
       }
@@ -236,7 +234,7 @@ var Application = (function () {
     }
   }
 
-  function cancelSuiteSelection() {
+  function cancelSuitSelection() {
     LocalState.requestSpecial = null;
     updateView();
   }
@@ -279,8 +277,8 @@ var Application = (function () {
     // State changes
     readyUp: readyUp,
 
-    // special method for cancelling suite selection
-    cancelSuiteSelection: cancelSuiteSelection,
+    // special method for cancelling suit selection
+    cancelSuitSelection: cancelSuitSelection,
 
     // Turn taking
     pickupCard: pickupCard,
