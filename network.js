@@ -348,7 +348,7 @@ var Network = (function () {
         "tried to take a turn when it's not our turn");
 
     var nextPlayer = topology[direction][myPid];
-    newState.turnOwner = nextPlayer
+    newState.turnOwner = nextPlayer;
     sendToPid(nextPlayer, ROOM, TURN, {
       turnType: turnType,
       newState: newState,
