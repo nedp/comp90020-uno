@@ -113,16 +113,16 @@ var Application = (function () {
   function onFirstTurn(pid) {
     GameState.turnOwner = pid;
 
-    // create the top card on the deck
+    // Create the top card on the deck
     GameState.topCard = CardFetcher.fetchCard().toString();
 
-    // broadcast state to peers so they can see the top card
+    // Broadcast state to peers so they can see the top card
     Network.broadcastState(GameState);
 
     // Update the fact that it's how turn
     LocalState.isMyTurn = true;
 
-    // update the view
+    // Update the view
     updateView();
   }
 
@@ -140,7 +140,7 @@ var Application = (function () {
   }
 
   // Called when the player takes their turn using the UI.
-  function onTurnTaken() {
+  function finishTurn() {
 
     // 1. Take the turn, by counting how many turns have occured.
     // TODO replace with actual turn taking logic using cards, etc.
@@ -178,8 +178,28 @@ var Application = (function () {
       LocalState.myHand.push(CardFetcher.fetchCard());
 
       // finish the turn
-      onTurnTaken();
+      finishTurn();
     }
+  }
+
+  function isValidTurn(card, topCard) {
+    // Wild cards are always ok.
+    if (card.type === CardFetcher.CARDTYPES.WILD) return true;
+    if (card.type === CardFetcher.CARDTYPES.WILDDRAW4) return true;
+
+    // They played a reverse/skip/draw on a different coloured
+    // card of the same type.
+    if (card.type !== CardFetcher.CARDTYPES.NUMBER &&
+        card.type === topCard.type) {
+      return true;
+    }
+
+    // If it's the same number or suite it's fine.
+    if (card.number !== null && card.number === topCard.number) return true;
+    if (card.suit && card.suit === topCard.suit) return true;
+
+    // If none of the above conditions held, it's an invalid move.
+    return false;
   }
 
   // Called when a user attempts to play a card from their hand
@@ -188,50 +208,43 @@ var Application = (function () {
     var tc = CardFetcher.fromString(GameState.topCard);
 
     console.log(card);
-    // see if the move was valid
-    if (LocalState.isMyTurn && (
-          card.type === CardFetcher.CARDTYPES.WILD ||
-          card.type === CardFetcher.CARDTYPES.WILDDRAW4 ||
-          // they played a reverse/skip/draw on a different coloured
-          // card of the same type
-          (card.type !== CardFetcher.CARDTYPES.NUMBER &&
-            card.type === card.type) ||
-          (card.number !== null && card.number === tc.number) ||
-          (card.suit && card.suit === tc.suit)
-        )) {
-      Utility.log('Valid Move!');
-
-      // if it's a wild, turn the view into a suit selection
-      if ((card.type === CardFetcher.CARDTYPES.WILD ||
-          card.type === CardFetcher.CARDTYPES.WILDDRAW4) &&
-          !card.suit) {
-        LocalState.requestSpecial = card;
-
-        updateView();
-        return;
-      }
-
-      // remove the original card from their hand
-      // in most cases this is the same card, but if it's a wild
-      // we want to find the wild with no suit attached to it
-      var originalCard = LocalState.requestSpecial || card;
-      var cardIndex = LocalState.myHand.indexOf(originalCard);
-      LocalState.myHand.splice(cardIndex, 1);
-
-      // place the card on top
-      GameState.topCard = card.toString();
-
-      // remove the special flag if it was set from above
-      // meaning the user has now chosen a suit for their wild
-      if (LocalState.requestSpecial) {
-        LocalState.requestSpecial = null;
-      }
-
-      // finish the turn
-      onTurnTaken();
-    } else {
+    // See if the move was valid.
+    if (!LocalState.isMyTurn || !isValidTurn(card, tc)) {
       Utility.log('Invalid Turn!');
+      return;
     }
+
+    Utility.log('Valid Move!');
+
+    // If it's a wild card and the suit is not already selected,
+    // turn the view into a suit selection.
+    if ((card.type === CardFetcher.CARDTYPES.WILD ||
+          card.type === CardFetcher.CARDTYPES.WILDDRAW4) &&
+        !card.suit) {
+      LocalState.requestSpecial = card;
+
+      updateView();
+      return;
+    }
+
+    // Remove the original card from their hand.
+    // In most cases this is the same card, but if it's a wild
+    // we want to find the wild with no suit attached to it.
+    // If there are duplicates, just take the first one.
+    var originalCard = LocalState.requestSpecial || card;
+    var cardIndex = LocalState.myHand.indexOf(originalCard);
+    LocalState.myHand.splice(cardIndex, 1);
+
+    // Place the card on top.
+    GameState.topCard = card.toString();
+
+    // Remove the special flag if it was set from above
+    // meaning the user has now chosen a suit for their wild.
+    if (LocalState.requestSpecial) {
+      LocalState.requestSpecial = null;
+    }
+
+    finishTurn();
   }
 
   function cancelSuitSelection() {
@@ -283,7 +296,6 @@ var Application = (function () {
     // Turn taking
     pickupCard: pickupCard,
     playCard: playCard,
-    onTurnTaken: onTurnTaken,
 
     // Uno/gotcha
     onUnoButton: onUnoButton,
