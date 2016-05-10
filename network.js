@@ -189,7 +189,9 @@ var Network = (function () {
 
         case STATE:
           Utility.logMessage(peer, 'STATE', data.payload);
-          Application.onUpdate(data.payload);
+          if (isInitialised) {
+            Application.onUpdate(data.payload);
+          }
           break;
 
         case READY:
@@ -318,9 +320,11 @@ var Network = (function () {
       // If someone else is the new leader, then I wait until they
       // acknowledge it with their own topology broadcast before
       // I stop acting as the leader.
-      if (newTopology.leader === myPid) {
-        topology = newTopology;
+      if (newTopology.leader !== myPid) {
+        sendToPid(newTopology.leader, ROOM, TOPOLOGY, newTopology);
+        newTopology.leader = myPid;
       }
+      topology = newTopology;
       render(newTopology);
       broadcastTopology(newTopology);
     }
@@ -366,17 +370,22 @@ var Network = (function () {
     Utility.assert(newState.turnOwner === myPid,
         'received a turn with the wrong pid');
 
-    // Update our local state
-    Application.onUpdate(payload.newState);
+    if (!isInitialised) {
+      endTurn(TurnType.NORMAL, newState);
+      return;
+    }
 
     // Broadcast the state to everyone now that we know we have
     // successfully made it to our turn
-    webrtc.sendDirectlyToAll(ROOM, STATE, payload.newState);
+    webrtc.sendDirectlyToAll(ROOM, STATE, newState);
+
+    // Update our local state
+    Application.onUpdate(newState);
 
     // If we got skipped, give the turn to the next person,
     // otherwise take our turn.
     if (turnType === TurnType.SKIP) {
-      endTurn(turnType.NORMAL, newState);
+      endTurn(TurnType.NORMAL, newState);
     } else {
       Utility.assertEquals(TurnType.NORMAL, turnType,
           'turns must have a known type');
@@ -389,6 +398,9 @@ var Network = (function () {
   function endTurn(turnType, newState) {
     Utility.assert(newState.turnOwner === myPid,
         "tried to take a turn when it's not our turn");
+
+    console.log('turn type:');
+    console.log(turnType);
 
     var nextPlayer = topology[direction][myPid];
     newState.turnOwner = nextPlayer
