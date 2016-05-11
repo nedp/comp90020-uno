@@ -34,14 +34,21 @@ var Network = (function () {
   // and order of the players in both directions.
   // Otherwise returns false.
   function topologiesAreEqual(a, b) {
+    // If the toplogies have different leaders, they're different.
     if (a.leader !== b.leader) return false;
 
-    var players = Object.keys(a[FORWARD]).sort();
-    if (players !== Object.keys(b[FORWARD]).sort()) return false;
+    // If the topologies have different players, they're different.
+    var aPlayers = Object.keys(a[FORWARD]).sort();
+    var bPlayers = Object.keys(b[FORWARD]).sort();
+    if (aPlayers.length !== bPlayers.length) return false;
+    for (var i in aPlayers) {
+      if (aPlayers[i] !== bPlayers[i]) return false;
+    }
 
-    return players.every(function (p) {
-      a[FORWARD][p] === b[FORWARD][p] &&
-      a[BACKWARD][p] === b[BACKWARD][p];
+    // If the topologies have different ring links, they're different.
+    return aPlayers.every(function (p) {
+      return (a[FORWARD][p] === b[FORWARD][p]) &&
+        (a[BACKWARD][p] === b[FORWARD][p]);
     });
   }
 
@@ -160,6 +167,7 @@ var Network = (function () {
       // topology since only the leader may check it.
       topology = generateTopology();
       topology.leader = leader;
+      broadcastTopology(topology);
       checkTopology();
       Application.onFirstTurn(myPid);
     }
@@ -328,10 +336,11 @@ var Network = (function () {
       if (newTopology.leader !== myPid) {
         sendToPid(newTopology.leader, ROOM, TOPOLOGY, newTopology);
         newTopology.leader = myPid;
+      } else {
+        topology = newTopology;
+        render(newTopology);
+        broadcastTopology(newTopology);
       }
-      topology = newTopology;
-      render(newTopology);
-      broadcastTopology(newTopology);
     }
   }
 
