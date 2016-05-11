@@ -19,6 +19,7 @@ var Network = (function () {
   var CHECK          = 'check';
   var CHECK_RESP     = 'resp';
   var NODE_FAIL      = 'fail';
+  var NODE_REMOVE    = 'remove';
   var ZOMBIE_NODE    = 'zombie';
 
   // myPid uniquely identifies this process.
@@ -169,6 +170,10 @@ var Network = (function () {
     // TODO Replace dodgy busy wait with something good.
 
     webrtc.on('channelMessage', function (peer, room, data, other) {
+      if (CheckState.failed[peer.id]) {
+        sendToPid(leader, ROOM, ZOMBIE_NODE, { zombiePid: peer.id });
+      }
+
       switch (data.type) {
         case TOPOLOGY:
           Utility.logMessage(peer, 'TOPOLOGY', data.payload);
@@ -253,6 +258,14 @@ var Network = (function () {
           if(myPid === leader) {
             handleNodeFailure(peer.id, data.payload.failedPid, topology);
           }
+          break;
+
+        case NODE_REMOVE:
+          CheckState.failed[data.payload.failedPid] = true;
+          break;
+
+        case ZOMBIE_NODE:
+          // TODO: leader should handle reintegrating the node back in
           break;
 
         default:
@@ -455,8 +468,10 @@ var Network = (function () {
                   ' has failed');
 
       if (leaderPid !== myPid) {
-        sendToPid(leaderPid, ROOM, NODE_FAIL, { failedPid: checkState.neighbour });
+        sendToPid(leaderPid, ROOM, NODE_FAIL,
+                  { failedPid: checkState.neighbour });
       }
+      // Leader isn't in its own pidMap
       else {
         handleNodeFailure(myPid, checkState.neighbour, topology);
       }
@@ -468,9 +483,27 @@ var Network = (function () {
   }
 
   // As the leader, deal with a failed node
+  // This should close the ring over the failed node:
+  //   2 -- 3          2 -- 3          2 -- 3
+  //  /      \        /      \        /     |
+  // 1        4  =>  1        X  =>  1      |
+  //  \      /        \      /        \     |
+  //   6 -- 5          6 -- 5          6 -- 5
   function handleNodeFailure(reporterPid, failedPid, topology) {
     Utility.log('*** FAILED NODE ***\n' +
           failedPid + ' has been reported as failed to the me');
+
+    var after  = topology[FORWARD][failedPid];
+    var before = topology[BACKWARD][failedPid];
+    topology[FORWARD][before] = after;
+    topology[BACKWARD][after] = before;
+
+    delete topology[FORWARD][failedPid];
+    delete topology[BACKWARD][failedPid];
+
+    broadcastTopology();
+    CheckState.failed[failedPid] = true;
+    webrtc.sendDirectlyToAll(ROOM, NODE_REMOVE, { failedPid: failedPid });
   }
 
   return {
