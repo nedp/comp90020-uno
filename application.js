@@ -4,19 +4,28 @@ var Application = (function () {
 
   // starting state of Game
   var GameState = {
-    isInitialised: false,
     turnOwner: null,
+    topCard: null,
     turnsTaken: 0,
+  };
+
+  // starting state of my player
+  var LocalState = {
+    myHand: [],
+    isInitialised: false,
   };
 
   // TODO convert INITIALISE related logic into something better.
   function initialise() {
-    Utility.assert(!GameState.isInitialised, 'Application initialised twice');
-    GameState.isInitialised = true;
+    Utility.assert(!LocalState.isInitialised, 'Application initialised twice');
+    LocalState.isInitialised = true;
 
     // TODO initialise the deck and hands
+    for (var x = 0; x < 7; x++) {
+      LocalState.myHand.push(CardFetcher.fetchCard());
+    }
 
-    onUpdate(GameState);
+    updateView();
   }
 
   // Called when the player presses the ready button to indicate that
@@ -53,11 +62,27 @@ var Application = (function () {
         '; old: ' + GameState.turnsTaken);
     GameState = newState;
 
+    updateView();
+  }
+
+  function updateView() {
+    // Object for view-specific variables that need to be processed
+    // before sending to the view.
+    var newViewState = {};
+
+    // 1. Convert the topCard into a card (not a string).
+    if (GameState.topCard) {
+      newViewState.topCard = CardFetcher.fromString(GameState.topCard);
+    }
+
     // 2. In the view, update:
     //     * Card pile
     //     * Player's hand
     //     * Other player's hand sizes
-    RootComponent.setState(newState);
+    var combinedState = {};
+    Object.assign(combinedState, LocalState, GameState, newViewState);
+
+    RootComponent.setState(combinedState);
 
     // TODO
     // 3. If a player has won, display their victory.
@@ -70,12 +95,33 @@ var Application = (function () {
   // Called when the previous process passes the turn to us.
   function onTurnReceived() {
     // 1. Allow the player to take their turn.
-    RootComponent.setState({isMyTurn: true});
+    LocalState.isMyTurn = true;
+
+    // if the top card is a draw, draw the stated number of cards
+    var tc = CardFetcher.fromString(GameState.topCard);
+    if (tc.type == CardFetcher.CARDTYPES.DRAW2) {
+      onDraw(2);
+    } else if (tc.type == CardFetcher.CARDTYPES.WILDDRAW4) {
+      onDraw(4);
+    }
+
+    updateView();
   }
 
   function onFirstTurn(pid) {
     GameState.turnOwner = pid;
-    RootComponent.setState({isMyTurn: true});
+
+    // Create the top card on the deck
+    GameState.topCard = CardFetcher.fetchCard().toString();
+
+    // Broadcast state to peers so they can see the top card
+    Network.broadcastState(GameState);
+
+    // Update the fact that it's how turn
+    LocalState.isMyTurn = true;
+
+    // Update the view
+    updateView();
   }
 
   // Called when another process tells this process to draw cards.
@@ -86,19 +132,18 @@ var Application = (function () {
   // Locally displayed cards are not part of the game state,
   // so no message has to be sent.
   function onDraw(count) {
-    // TODO
-    // 1. Choose, and add to the local hand, an appropriate number
-    //    of cards.
+    for (var x = 0; x < count; x++) {
+      LocalState.myHand.push(CardFetcher.fetchCard());
+    }
   }
 
   // Called when the player takes their turn using the UI.
-  function onTurnTaken() {
+  function finishTurn() {
 
     // 1. Take the turn, by counting how many turns have occured.
     // TODO replace with actual turn taking logic using cards, etc.
     GameState.turnsTaken++;
-    var newState = GameState;
-    Utility.log("I'm taking my turn now (" + newState.turnsTaken + ')');
+    Utility.log("I'm taking my turn now (" + GameState.turnsTaken + ')');
 
     // TODO 2. If I have only one card left, add me to the Uno list.
     // TODO 3. If I have more than one card left, remove me from the Uno list.
@@ -107,11 +152,11 @@ var Application = (function () {
     // TODO base `type` on which card was played.
     // TODO Wait for an ack.
     var turnType = TurnType.NORMAL;
-    Network.endTurn(turnType, newState);
-    newState.isMyTurn = false;
+    Network.endTurn(turnType, GameState);
+    LocalState.isMyTurn = false;
 
     // 5. update my own view
-    onUpdate(newState);
+    updateView();
   }
 
   // === Uno functions ===
@@ -121,6 +166,89 @@ var Application = (function () {
   // TO-Multicasting of Uno/Gotcha calls.
   //
   // It might be better to pick a different approach.
+
+  // Called when a user wishes to pickup from the deck instead of playing
+  // a card from their hand
+  function pickupCard() {
+    // only pickup if it's our turn
+    if (LocalState.isMyTurn) {
+      // add a new card to my hand from the deck
+      LocalState.myHand.push(CardFetcher.fetchCard());
+
+      // finish the turn
+      finishTurn();
+    }
+  }
+
+  function isValidTurn(card, topCard) {
+    // Wild cards are always ok.
+    if (card.type === CardFetcher.CARDTYPES.WILD) return true;
+    if (card.type === CardFetcher.CARDTYPES.WILDDRAW4) return true;
+
+    // They played a reverse/skip/draw on a different coloured
+    // card of the same type.
+    if (card.type !== CardFetcher.CARDTYPES.NUMBER &&
+        card.type === topCard.type) {
+      return true;
+    }
+
+    // If it's the same number or suite it's fine.
+    if (card.number !== null && card.number === topCard.number) return true;
+    if (card.suit && card.suit === topCard.suit) return true;
+
+    // If none of the above conditions held, it's an invalid move.
+    return false;
+  }
+
+  // Called when a user attempts to play a card from their hand
+  function playCard(card) {
+    // get the card representation of the top card
+    var tc = CardFetcher.fromString(GameState.topCard);
+
+    console.log(card);
+    // See if the move was valid.
+    if (!LocalState.isMyTurn || !isValidTurn(card, tc)) {
+      Utility.log('Invalid Turn!');
+      return;
+    }
+
+    Utility.log('Valid Move!');
+
+    // If it's a wild card and the suit is not already selected,
+    // turn the view into a suit selection.
+    if ((card.type === CardFetcher.CARDTYPES.WILD ||
+          card.type === CardFetcher.CARDTYPES.WILDDRAW4) &&
+        !card.suit) {
+      LocalState.requestSpecial = card;
+
+      updateView();
+      return;
+    }
+
+    // Remove the original card from their hand.
+    // In most cases this is the same card, but if it's a wild
+    // we want to find the wild with no suit attached to it.
+    // If there are duplicates, just take the first one.
+    var originalCard = LocalState.requestSpecial || card;
+    var cardIndex = LocalState.myHand.indexOf(originalCard);
+    LocalState.myHand.splice(cardIndex, 1);
+
+    // Place the card on top.
+    GameState.topCard = card.toString();
+
+    // Remove the special flag if it was set from above
+    // meaning the user has now chosen a suit for their wild.
+    if (LocalState.requestSpecial) {
+      LocalState.requestSpecial = null;
+    }
+
+    finishTurn();
+  }
+
+  function cancelSuitSelection() {
+    LocalState.requestSpecial = null;
+    updateView();
+  }
 
   // Called when the player calls Uno via the UI.
   function onUnoButton() {
@@ -160,8 +288,12 @@ var Application = (function () {
     // State changes
     readyUp: readyUp,
 
+    // special method for cancelling suit selection
+    cancelSuitSelection: cancelSuitSelection,
+
     // Turn taking
-    onTurnTaken: onTurnTaken,
+    pickupCard: pickupCard,
+    playCard: playCard,
 
     // Uno/gotcha
     onUnoButton: onUnoButton,

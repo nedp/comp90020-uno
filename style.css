@@ -4,3 +4,21 @@
 .notTakingTurn {
   font-weight: normal;
 }
+.turnButton {
+  margin-left: 100px;
+}
+.isNotMyTurn {
+  opacity: 0.5;
+}
+.card {
+  margin-right: -64px;
+  width: 150px;
+  border-radius: 25px;
+}
+.specialPicker .card {
+  margin-right: 5px;
+}
+.myHand .card:hover {
+  box-shadow: 0 0 20px #666;
+  margin-top: -20px;
+}

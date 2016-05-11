@@ -187,13 +187,6 @@ var Network = (function () {
           onTurnMessage(data.payload);
           break;
 
-        case STATE:
-          Utility.logMessage(peer, 'STATE', data.payload);
-          if (isInitialised) {
-            Application.onUpdate(data.payload);
-          }
-          break;
-
         case READY:
           Utility.logMessage(peer, 'READY', data.payload);
           if (isInitialised) {
@@ -214,6 +207,18 @@ var Network = (function () {
               Application.initialise();
               peer.sendDirectly(ROOM, INITIALISE);
             }
+          }
+
+          break;
+
+        case STATE:
+          Utility.logMessage(peer, 'STATE', data.payload);
+          Application.onUpdate(data.payload);
+
+          // in case we missed the initialise but joined the room since
+          if (!isInitialised) {
+            initialise();
+            Application.initialise();
           }
           break;
 
@@ -334,6 +339,10 @@ var Network = (function () {
     webrtc.sendDirectlyToAll(ROOM, TOPOLOGY, topology);
   }
 
+  function broadcastState(newState) {
+    webrtc.sendDirectlyToAll(ROOM, STATE, newState);
+  }
+
   // Called when a process receives a topology update.
   function onTopologyUpdate(newTopology) {
     console.log('got topology ' + newTopology);
@@ -403,7 +412,7 @@ var Network = (function () {
     console.log(turnType);
 
     var nextPlayer = topology[direction][myPid];
-    newState.turnOwner = nextPlayer
+    newState.turnOwner = nextPlayer;
     sendToPid(nextPlayer, ROOM, TURN, {
       turnType: turnType,
       newState: newState,
@@ -420,5 +429,9 @@ var Network = (function () {
     endTurn: endTurn,
     readyUp: readyUp,
     sendToPid: sendToPid,
+    broadcastState: broadcastState,
+    get leader() {
+      return leader;
+    },
   };
 })();
