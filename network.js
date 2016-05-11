@@ -52,9 +52,11 @@ var Network = (function () {
     });
   }
 
-  // Regenerate the topology, save it locally, and update the view.
+  // Regenerate the topology and return it.
   // This generates the topology in both directions (which makes
   // 'reverse' card logic easier).
+  // TODO update this to use manual registration with the leader rather
+  // than getting a list of processes from webrtc.
   function generateTopology() {
     // TODO use manual registration rather than WebRTC's peers.
     var peers = webrtc.getPeers();

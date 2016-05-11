@@ -32,9 +32,7 @@ var Application = (function () {
   // they're ready to start the game.
   // This allows players to wait until we have agreed that everyone is
   // ready before starting the game.
-  function readyUp() {
-    Network.readyUp();
-  }
+  var readyUp = network.readyUp;
 
   // === Turn and state functions ===
   //
