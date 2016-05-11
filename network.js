@@ -41,6 +41,7 @@ var Network = (function () {
       neighbour:           null,
       checkInterval:       MAX_CHECK_INTERVAL,
       lastPingTime:        null,
+      checkTimeoutHandler: null,
       failed:              {},
       responseReceived:    true,
     };
@@ -223,7 +224,6 @@ var Network = (function () {
             peer.sendDirectly(ROOM, PREINITIALISED);
             if (leader === myPid) {
               broadcastTopology();
-              beginNeighbourChecking(CheckState, topology[FORWARD][myPid]);
             }
           } else {
             initialise();
@@ -334,6 +334,7 @@ var Network = (function () {
     generateTopology(pids);
     leader = pids[0];
 
+    beginNeighbourChecking(CheckState, topology[FORWARD][myPid]);
     // 2. Broadcast the new topology.
     broadcastTopology();
   }
@@ -403,6 +404,9 @@ var Network = (function () {
 
   // Start the checking after being given a topology
   function beginNeighbourChecking(checkState, newNeighbour) {
+    if (checkState.checkTimeoutHandler !== null) {
+      clearTimeout(checkState.checkTimeoutHandler);
+    }
     checkState.neighbour = newNeighbour;
     checkState.responseReceived = true;
     checkNeighbour(checkState);
@@ -424,7 +428,7 @@ var Network = (function () {
     Utility.log('PINGING ' + checkState.neighbour);
 
     // Set up next response check/ping
-    setTimeout(function () {
+    checkState.checkTimeoutHandler = setTimeout(function () {
       checkNeighbour(checkState, leader);
     }, checkState.checkInterval);
   }
@@ -446,21 +450,26 @@ var Network = (function () {
   // Tell the leader our neighbour has failed
   function reportNeighbourFailure(checkState, leaderPid) {
     if (checkState.neighbour !== leaderPid) {
-      alert(checkState.neighbour + ' has failed');
       Utility.log('*** NODE FAIL *** -- Neighbour ' +
                   checkState.neighbour +
                   ' has failed');
-      sendToPid(leaderPid, ROOM, NODE_FAIL, { failedPid: checkState.neighbour });
+
+      if (leaderPid !== myPid) {
+        sendToPid(leaderPid, ROOM, NODE_FAIL, { failedPid: checkState.neighbour });
+      }
+      else {
+        handleNodeFailure(myPid, checkState.neighbour, topology);
+      }
     }
     else {
-      alert("The leader has failed!");
+      Utility.log("The leader has failed!");
       // TODO: work out what to do when the leader fails
     }
   }
 
   // As the leader, deal with a failed node
   function handleNodeFailure(reporterPid, failedPid, topology) {
-    alert('*** FAILED NODE ***\n' +
+    Utility.log('*** FAILED NODE ***\n' +
           failedPid + ' has been reported as failed to the me');
   }
 
