@@ -409,10 +409,10 @@ var Network = (function () {
   }
 
   // Ping a neighbour and expect a response
-  function checkNeighbour(checkState, leaderPid) {
+  function checkNeighbour(checkState) {
     // Report node if they haven't responded since last ping
     if (!checkState.responseReceived) {
-      reportNeighbourFailure(checkState, leaderPid);
+      reportNeighbourFailure(checkState, leader);
       return;
     }
 
@@ -425,7 +425,7 @@ var Network = (function () {
 
     // Set up next response check/ping
     setTimeout(function () {
-      checkNeighbour(checkState, leaderPid);
+      checkNeighbour(checkState, leader);
     }, checkState.checkInterval);
   }
 
@@ -445,16 +445,23 @@ var Network = (function () {
 
   // Tell the leader our neighbour has failed
   function reportNeighbourFailure(checkState, leaderPid) {
-    alert(checkState.neighbour + ' has failed');
-    Utility.log('*** NODE FAIL *** -- Neighbour ' +
-                checkState.neighbour +
-                ' has failed');
-    sendToPid(leaderPid, ROOM, NODE_FAIL, { failedPid: checkState.neighbour });
+    if (checkState.neighbour !== leaderPid) {
+      alert(checkState.neighbour + ' has failed');
+      Utility.log('*** NODE FAIL *** -- Neighbour ' +
+                  checkState.neighbour +
+                  ' has failed');
+      sendToPid(leaderPid, ROOM, NODE_FAIL, { failedPid: checkState.neighbour });
+    }
+    else {
+      alert("The leader has failed!");
+      // TODO: work out what to do when the leader fails
+    }
   }
 
   // As the leader, deal with a failed node
   function handleNodeFailure(reporterPid, failedPid, topology) {
-    alert(failedPid + ' has failed');
+    alert('*** FAILED NODE ***\n' +
+          failedPid + ' has been reported as failed to the me');
   }
 
   return {
