@@ -11,11 +11,15 @@ var Network = (function () {
                                  'everyone');
 
   // Message types.
-  var TOPOLOGY = 'top';
-  var TURN = 'turn';
-  var STATE = 'state';
-  var INITIALISE = 'init';
+  var TOPOLOGY       = 'top';
+  var TURN           = 'turn';
+  var STATE          = 'state';
+  var INITIALISE     = 'init';
   var PREINITIALISED = 'pre-init';
+  var CHECK          = 'check';
+  var CHECK_RESP     = 'resp';
+  var NODE_FAIL      = 'fail';
+  var ZOMBIE_NODE    = 'zombie';
 
   // myPid uniquely identifies this process.
   var myPid;
@@ -25,6 +29,22 @@ var Network = (function () {
   var BACKWARD = 'back';
   var direction = FORWARD;
   var topology;
+
+  // Upper and lower bounds on neighbour check times
+  var MAX_CHECK_INTERVAL = 4000;
+  var MIN_CHECK_INTERVAL = 2000;
+  // checkInterval = CHECK_FACTOR * lastResponseTime
+  var CHECK_FACTOR       = 3;
+
+  var CheckState =
+    {
+      neighbour:           null,
+      checkTimeoutHandler: null,
+      checkInterval:       MAX_CHECK_INTERVAL,
+      lastPingTime:        null,
+      failed:              {},
+      responseReceived:    true,
+    };
 
   // The leader permanently holds the lock on the topology.
   var leader = null;
@@ -137,6 +157,7 @@ var Network = (function () {
       onLeaderTurn();
       Application.onFirstTurn(myPid);
     }
+
   }
 
   webrtc.on('readyToCall', function () {
@@ -215,6 +236,23 @@ var Network = (function () {
           // TODO convert INITIALISE related logic into something better.
           Utility.logMessage(peer, 'PREINITIALISED', data.payload);
           // TODO Register with the leader.
+          break;
+
+        case CHECK:
+          Utility.logMessage(peer, 'CHECK', data.payload);
+          peer.sendDirectly(ROOM, CHECK_RESP);
+          break;
+
+        case CHECK_RESP:
+          Utility.logMessage(peer, 'CHECK_RESP', data.payload);
+          receiveNeighbourResponse(CheckState);
+          break;
+
+        case NODE_FAIL:
+          Utility.logMessage(peer, 'NODE_FAIL', data.payload);
+          if(myPid === leader) {
+            handleNodeFailure(peer.id, data.payload.failedPid, topology);
+          }
           break;
 
         default:
@@ -317,6 +355,8 @@ var Network = (function () {
     leader = payload.leader;
     topology = payload.topology;
 
+    beginNeighbourChecking(CheckState, topology[FORWARD][myPid]);
+
     Utility.log('The leader is now ' + leader);
 
     // 2. Update the state of the view by adding on the list of
@@ -360,6 +400,66 @@ var Network = (function () {
   // Not sure what the approach is here.
   //
   // Maybe handle it with a decorator around SimpleWebRTC?
+
+  // Start the checking after being given a topology
+  function beginNeighbourChecking(checkState, newNeighbour) {
+    if (checkState.checkTimeoutHandler !== null) {
+      clearTimeout(checkState.checkTimeoutHandler);
+    }
+    checkState.neighbour = newNeighbour;
+    checkState.responseReceived = true;
+    checkNeighbour(checkState);
+  }
+
+  // Ping a neighbour and expect a response
+  function checkNeighbour(checkState, leaderPid) {
+    // Report node if they haven't responded since last ping
+    if (!checkState.responseReceived) {
+      clearTimeout(checkState.checkTimeoutHandler);
+      reportNeighbourFailure(checkState, leaderPid);
+      return;
+    }
+
+    // Set up the next receive
+    checkState.responseReceived = false;
+    checkState.lastPingTime = new Date();
+    sendToPid(checkState.neighbour, ROOM, CHECK);
+
+    Utility.log('PINGING ' + checkState.neighbour);
+
+    // Set up next response check/ping
+    checkState.checkTimeoutHandler = setTimeout(function () {
+      checkNeighbour(checkState, leaderPid);
+    }, checkState.checkInterval);
+  }
+
+  // Register a neighbour's response
+  function receiveNeighbourResponse(checkState) {
+    checkState.responseReceived = true;
+
+    var newInterval = CHECK_FACTOR * (new Date() - checkState.lastPingTime);
+    if (newInterval > MAX_CHECK_INTERVAL) {
+      newInterval = MAX_CHECK_INTERVAL;
+    }
+    else if (newInterval < MIN_CHECK_INTERVAL) {
+      newInterval = MIN_CHECK_INTERVAL;
+    }
+    checkState.checkInterval = newInterval;
+  }
+
+  // Tell the leader our neighbour has failed
+  function reportNeighbourFailure(checkState, leaderPid) {
+    alert(checkState.neighbour + ' has failed');
+    Utility.log('*** NODE FAIL *** -- Neighbour ' +
+                checkState.neighbour +
+                ' has failed');
+    sendToPid(leaderPid, ROOM, NODE_FAIL, { failedPid: checkState.neighbour });
+  }
+
+  // As the leader, deal with a failed node
+  function handleNodeFailure(reporterPid, failedPid, topology) {
+    alert(failedPid + ' has failed');
+  }
 
   return {
     endTurn: endTurn,
