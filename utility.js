@@ -36,12 +36,26 @@ var Utility = (function () {
          payload + '"');
   }
 
+  function logTopology(topology, directions) {
+    var logStr = 'TOPOLOGY\n--------\n';
+    directions.forEach(function (direction) {
+      logStr += direction + '\n';
+      for (var pid in topology[direction]) {
+        logStr += pid + ' -> ' + topology[direction] + '\n';
+      }
+    });
+    logStr += '\n';
+
+    log(logStr);
+  }
+
   return {
     assert: assert,
     assertEquals: assertEquals,
     assertSameItems: assertSameItems,
     log: log,
     logMessage: logMessage,
+    logTopology: logTopology,
   };
 })();
 

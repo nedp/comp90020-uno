@@ -21,6 +21,7 @@ var Network = (function () {
   var NODE_FAIL      = 'fail';
   var NODE_REMOVE    = 'remove';
   var ZOMBIE_NODE    = 'zombie';
+  var LEADER_DOWN    = 'down';
 
   // myPid uniquely identifies this process.
   var myPid;
@@ -268,6 +269,10 @@ var Network = (function () {
           // TODO: leader should handle reintegrating the node back in
           break;
 
+        case LEADER_DOWN:
+          generateTopology();
+          break;
+
         default:
           throw 'incomplete branch coverage in message handler switch statement';
       }
@@ -369,6 +374,11 @@ var Network = (function () {
     leader = payload.leader;
     topology = payload.topology;
 
+    Utility.logTopology(topology, [FORWARD, BACKWARD]);
+
+    Utility.assert(topology[FORWARD][myPid] !== undefined,
+           'I have no neighbour!');
+
     beginNeighbourChecking(CheckState, topology[FORWARD][myPid]);
 
     Utility.log('The leader is now ' + leader);
@@ -438,8 +448,6 @@ var Network = (function () {
     checkState.lastPingTime = new Date();
     sendToPid(checkState.neighbour, ROOM, CHECK);
 
-    Utility.log('PINGING ' + checkState.neighbour);
-
     // Set up next response check/ping
     checkState.checkTimeoutHandler = setTimeout(function () {
       checkNeighbour(checkState, leader);
@@ -471,14 +479,14 @@ var Network = (function () {
         sendToPid(leaderPid, ROOM, NODE_FAIL,
                   { failedPid: checkState.neighbour });
       }
-      // Leader isn't in its own pidMap
+      // Leader isn't in its own pidMap so can't message itself
       else {
         handleNodeFailure(myPid, checkState.neighbour, topology);
       }
     }
     else {
       Utility.log("The leader has failed!");
-      // TODO: work out what to do when the leader fails
+      webrtc.sendDirectlyToAll(ROOM, LEADER_DOWN);
     }
   }
 
@@ -502,6 +510,7 @@ var Network = (function () {
     delete topology[BACKWARD][failedPid];
 
     broadcastTopology();
+    renderPlayers(topology);
     CheckState.failed[failedPid] = true;
     webrtc.sendDirectlyToAll(ROOM, NODE_REMOVE, { failedPid: failedPid });
   }
