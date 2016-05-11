@@ -39,7 +39,6 @@ var Network = (function () {
   var CheckState =
     {
       neighbour:           null,
-      checkTimeoutHandler: null,
       checkInterval:       MAX_CHECK_INTERVAL,
       lastPingTime:        null,
       failed:              {},
@@ -224,6 +223,7 @@ var Network = (function () {
             peer.sendDirectly(ROOM, PREINITIALISED);
             if (leader === myPid) {
               broadcastTopology();
+              beginNeighbourChecking(CheckState, topology[FORWARD][myPid]);
             }
           } else {
             initialise();
@@ -403,9 +403,6 @@ var Network = (function () {
 
   // Start the checking after being given a topology
   function beginNeighbourChecking(checkState, newNeighbour) {
-    if (checkState.checkTimeoutHandler !== null) {
-      clearTimeout(checkState.checkTimeoutHandler);
-    }
     checkState.neighbour = newNeighbour;
     checkState.responseReceived = true;
     checkNeighbour(checkState);
@@ -415,7 +412,6 @@ var Network = (function () {
   function checkNeighbour(checkState, leaderPid) {
     // Report node if they haven't responded since last ping
     if (!checkState.responseReceived) {
-      clearTimeout(checkState.checkTimeoutHandler);
       reportNeighbourFailure(checkState, leaderPid);
       return;
     }
@@ -428,7 +424,7 @@ var Network = (function () {
     Utility.log('PINGING ' + checkState.neighbour);
 
     // Set up next response check/ping
-    checkState.checkTimeoutHandler = setTimeout(function () {
+    setTimeout(function () {
       checkNeighbour(checkState, leaderPid);
     }, checkState.checkInterval);
   }
