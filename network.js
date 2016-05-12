@@ -399,17 +399,16 @@ var Network = (function () {
     // Accept the new turn.
     newState.turnOwner = myPid;
 
-    // Update our local state.
-    Application.onUpdate(newState);
-
-    // Broadcast the state to everyone now that we know we have
-    // successfully made it to our turn
-    broadcastState(newState);
-
     // Draw cards if we're told to.
     if (nCardsToDraw) {
       Application.draw(nCardsToDraw);
+      // TODO update our card count in `newState`.
     }
+
+    // Update our local state and broadcast, after we updated
+    // it with any card-draws we had to do.
+    Application.onUpdate(newState);
+    broadcastState(newState);
 
     // If we got skipped, give the turn to the next person,
     // otherwise take our turn.

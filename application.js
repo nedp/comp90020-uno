@@ -118,16 +118,18 @@ var Application = (function () {
   }
 
   // Called when another process tells this process to draw cards.
-  // As in, pick up some cards, not render them.
+  //
+  // Draw here means "picks up", but we also render the cards.
   //
   // This has nothing to do with taking a turn or holding the lock
-  // on the game state.
-  // Locally displayed cards are not part of the game state,
+  // on the shared game state.
+  // Locally displayed cards are not part of the shared game state,
   // so no message has to be sent.
   function draw(count) {
     for (var x = 0; x < count; x++) {
       LocalState.myHand.push(CardFetcher.fetchCard());
     }
+    updateView();
   }
 
   // Called when the player takes their turn using the UI.
