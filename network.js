@@ -218,7 +218,6 @@ var Network = (function () {
               peer.sendDirectly(ROOM, INITIALISE);
             }
           }
-
           break;
 
         case STATE:
@@ -387,46 +386,74 @@ var Network = (function () {
   function onTurnMessage(payload) {
     var newState = payload.newState;
     var turnType = payload.turnType;
-    Utility.assert(newState.turnOwner === myPid,
-        'received a turn with the wrong pid');
+    var nCardsToDraw = payload.nCardsToDraw;
+
+    // Adhere to the direction which was passed to us.
+    direction = payload.direction;
 
     if (!isInitialised) {
-      endTurn(TurnType.NORMAL, newState);
+      endTurn(turnType, newState, nCardsToDraw);
       return;
     }
 
+    // Accept the new turn.
+    newState.turnOwner = myPid;
+
+    // Update our local state.
+    Application.onUpdate(newState);
+
     // Broadcast the state to everyone now that we know we have
     // successfully made it to our turn
-    webrtc.sendDirectlyToAll(ROOM, STATE, newState);
+    broadcastState(newState);
 
-    // Update our local state
-    Application.onUpdate(newState);
+    // Draw cards if we're told to.
+    if (nCardsToDraw) {
+      Application.draw(nCardsToDraw);
+    }
 
     // If we got skipped, give the turn to the next person,
     // otherwise take our turn.
-    if (turnType === TurnType.SKIP) {
-      endTurn(TurnType.NORMAL, newState);
-    } else {
-      Utility.assertEquals(TurnType.NORMAL, turnType,
-          'turns must have a known type');
-      Application.onTurnReceived(newState);
+    switch (turnType) {
+      case TurnType.SKIP:
+        endTurn(TurnType.NORMAL, newState);
+        break;
+
+      case TurnType.NORMAL:
+        Application.onTurnReceived();
+        break;
+
+      // Note: REVERSE turn messages shouldn't actually be sent,
+      // they should be converted to NORMAL messages with the direction
+      // flipped.
+      default:
+        throw "Unknown turn type";
     }
   }
 
   // Ends the current player's turn, checks the topology to find
   // the next player, then sends the turn to the next player.
-  function endTurn(turnType, newState) {
+  function endTurn(turnType, newState, nCardsToDraw) {
     Utility.assert(newState.turnOwner === myPid,
         "tried to take a turn when it's not our turn");
 
-    console.log('turn type:');
-    console.log(turnType);
+    // Flip the turn direction if this is a reverse turn.
+    var newDirection;
+    if (turnType === TurnType.REVERSE) {
+      turnType = TurnType.NORMAL;
+      newDirection = (direction === FORWARD) ? BACKWARD : FORWARD;
+    } else {
+      newDirection = direction;
+    }
+    passTurn(turnType, newDirection, newState, nCardsToDraw);
+  }
 
-    var nextPlayer = topology[direction][myPid];
-    newState.turnOwner = nextPlayer;
+  function passTurn(turnType, newDirection, newState, nCardsToDraw) {
+    var nextPlayer = topology[newDirection][myPid];
     sendToPid(nextPlayer, ROOM, TURN, {
       turnType: turnType,
       newState: newState,
+      direction: newDirection,
+      nCardsToDraw: nCardsToDraw,
     });
   }
 
