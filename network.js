@@ -34,7 +34,7 @@ var Network = (function () {
 
   // Upper and lower bounds on neighbour check times
   var MAX_CHECK_INTERVAL = 4000;
-  var MIN_CHECK_INTERVAL = 2000;
+  var MIN_CHECK_INTERVAL = 500;
   // checkInterval = CHECK_FACTOR * lastResponseTime
   var CHECK_FACTOR       = 3;
 
@@ -487,6 +487,7 @@ var Network = (function () {
     else {
       Utility.log("The leader has failed!");
       webrtc.sendDirectlyToAll(ROOM, LEADER_DOWN);
+      generateTopology();
     }
   }
 

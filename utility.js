@@ -37,7 +37,7 @@ var Utility = (function () {
   }
 
   function logTopology(topology, directions) {
-    var logStr = 'TOPOLOGY\n--------\n';
+    var logStr = '\nTOPOLOGY\n--------\n';
     directions.forEach(function (direction) {
       logStr += direction + '\n';
       for (var pid in topology[direction]) {
