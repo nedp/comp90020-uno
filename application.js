@@ -195,19 +195,14 @@ var Application = (function () {
 
   // Called when a user attempts to play a card from their hand
   function playCard(card) {
-    // get the card representation of the top card
+    // Get the card representation of the top card
     var tc = CardFetcher.fromString(GameState.topCard);
 
-    console.log(card);
-    // See if the move was valid.
-    console.log('LocalState', LocalState);
-    console.log('card', card);
-    console.log('tc', tc);
+    // Don't allow invalid moves to be made.
     if (!LocalState.isMyTurn || !isValidTurn(card, tc)) {
       Utility.log('Invalid Turn!');
       return;
     }
-
     Utility.log('Valid Move!');
 
     // If it's a wild card and the suit is not already selected,
