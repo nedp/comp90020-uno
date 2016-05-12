@@ -69,6 +69,7 @@ var CardFetcher = (function () {
       toString: toString,
       turnType: turnType(type),
       nCardsToDraw: nCardsToDraw,
+      get needsSuitSelection() { return null === this.suit; },
     };
   }
 

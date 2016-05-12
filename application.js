@@ -207,11 +207,8 @@ var Application = (function () {
 
     // If it's a wild card and the suit is not already selected,
     // turn the view into a suit selection.
-    if ((card.type === CardFetcher.CARDTYPES.WILD ||
-          card.type === CardFetcher.CARDTYPES.WILDDRAW4) &&
-        !card.suit) {
+    if (card.needsSuitSelection) {
       LocalState.requestSpecial = card;
-
       updateView();
       return;
     }
