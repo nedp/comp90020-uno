@@ -578,7 +578,7 @@ var Network = (function () {
 
     // Render and broadcast the topology.
     broadcastTopology(topology);
-    renderPlayers(topology);
+    render(topology);
 
     // Register the node as dead and inform everyone that it is dead.
     CheckState.failed[failedPid] = true;
