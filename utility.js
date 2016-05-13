@@ -41,7 +41,7 @@ var Utility = (function () {
     directions.forEach(function (direction) {
       logStr += direction + '\n';
       for (var pid in topology[direction]) {
-        logStr += pid + ' -> ' + topology[direction] + '\n';
+        logStr += pid + ' -> ' + topology[direction][pid] + '\n';
       }
     });
     logStr += '\n';

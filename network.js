@@ -11,17 +11,16 @@ var Network = (function () {
                                  'everyone');
 
   // Message types.
-  var TOPOLOGY = 'top';
-  var TURN = 'turn';
-  var STATE = 'state';
-  var READY = 'ask-init';
-  var INITIALISE = 'init';
+  var TOPOLOGY       = 'top';
+  var TURN           = 'turn';
+  var STATE          = 'state';
+  var READY          = 'ask-init';
+  var INITIALISE     = 'init';
   var PREINITIALISED = 'pre-init';
   var CHECK          = 'check';
   var CHECK_RESP     = 'resp';
   var NODE_FAIL      = 'fail';
   var NODE_REMOVE    = 'remove';
-  var ZOMBIE_NODE    = 'zombie';
   var LEADER_DOWN    = 'down';
 
   // myPid uniquely identifies this process.
@@ -37,8 +36,8 @@ var Network = (function () {
   var readySet = {};
 
   // Upper and lower bounds on neighbour check times
-  var MAX_CHECK_INTERVAL = 4000;
-  var MIN_CHECK_INTERVAL = 500;
+  var MAX_CHECK_INTERVAL = 10000;
+  var MIN_CHECK_INTERVAL = 2000;
   // checkInterval = CHECK_FACTOR * lastResponseTime
   var CHECK_FACTOR       = 3;
 
@@ -208,11 +207,6 @@ var Network = (function () {
     // TODO Replace dodgy busy wait with something good.
 
     webrtc.on('channelMessage', function (peer, room, data, other) {
-      if (CheckState.failed[peer.id]) {
-        sendToPid(leader, ROOM, ZOMBIE_NODE, { zombiePid: peer.id });
-        return;
-      }
-
       switch (data.type) {
         case TOPOLOGY:
           Utility.logMessage(peer, 'TOPOLOGY', data.payload);
@@ -297,10 +291,6 @@ var Network = (function () {
 
         case NODE_REMOVE:
           CheckState.failed[data.payload.failedPid] = true;
-          break;
-
-        case ZOMBIE_NODE:
-          // TODO: leader should handle reintegrating the node back in
           break;
 
         case LEADER_DOWN:
