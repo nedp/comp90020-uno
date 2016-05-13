@@ -289,7 +289,7 @@ var Network = (function () {
 
         case NODE_FAIL:
           Utility.logMessage(peer, 'NODE_FAIL', data.payload);
-          if(myPid === leader) {
+          if(myPid === topology.leader) {
             handleNodeFailure(peer.id, data.payload.failedPid, topology);
           }
           break;
@@ -539,7 +539,7 @@ var Network = (function () {
   function checkNeighbour(checkState) {
     // Report node if they haven't responded since last ping
     if (!checkState.responseReceived) {
-      reportNeighbourFailure(checkState, leader);
+      reportNeighbourFailure(checkState, topology.leader);
       return;
     }
 
@@ -550,7 +550,7 @@ var Network = (function () {
 
     // Set up next response check/ping
     checkState.checkTimeoutHandler = setTimeout(function () {
-      checkNeighbour(checkState, leader);
+      checkNeighbour(checkState, topology.leader);
     }, checkState.checkInterval);
   }
 
