@@ -9,9 +9,14 @@ var GameView = React.createClass({
     var cntPlayers = 0;
     if (this.state.players) {
       this.state.players.forEach(function (value) {
+        var cardCount = null;
+        if (this.state.cardCounts) {
+          cardCount = this.state.cardCounts[value];
+        }
         players.push(<PlayerView key={value}
                                  takingTurn={this.state.turnOwner === value}
                                  playerId={value}
+                                 cardCount={cardCount}
                                  idx={++cntPlayers}></PlayerView>);
       }.bind(this));
     }
@@ -102,8 +107,19 @@ var PlayerView = React.createClass({
   render: function () {
     var playerClass = this.props.takingTurn ? 'takingTurn' : 'notTakingTurn';
 
+    var cardCountLabel = null;
+    if (this.props.cardCount >= 0) {
+      cardCountLabel = <span className="label label-primary">
+                         {this.props.cardCount}
+                       </span>;
+    }
+
     return <div>
-             <p className={playerClass}>Player {this.props.idx} ({this.props.playerId})</p>
+             <p className={playerClass}>
+               Player {this.props.idx}
+               &nbsp;{ cardCountLabel }&nbsp;
+               ({this.props.playerId})
+             </p>
            </div>;
   },
 });
