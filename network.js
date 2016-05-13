@@ -10,19 +10,30 @@ var Network = (function () {
                                  URL.substr(URL.indexOf('room') + 5) :
                                  'everyone');
 
-  // Message types.
-  var TOPOLOGY       = 'top';
-  var TURN           = 'turn';
-  var STATE          = 'state';
-  var READY          = 'ask-init';
-  var INITIALISE     = 'init';
-  var PREINITIALISED = 'pre-init';
-  var CARD_COUNT     = 'card-count';
-  var CHECK          = 'check';
-  var CHECK_RESP     = 'resp';
-  var NODE_FAIL      = 'fail';
-  var NODE_REMOVE    = 'remove';
-  var LEADER_DOWN    = 'down';
+  // ==== Message types
+
+  // Network initialisation messages
+  var READY          = 'READY';
+  var INITIALISE     = 'INITIALISE';
+  var PREINITIALISED = 'PREINITIALISED';
+
+  // Ring mutex (turn taking) messages
+  var TOPOLOGY       = 'TOPOLOGY';
+  var TURN           = 'TURN';
+
+  // Application state messages
+  var STATE          = 'STATE';
+  var CARD_COUNT     = 'CARD_COUNT';
+
+  // Failure detection and handling messages
+  var CHECK          = 'CHECK';
+  var ACKNOWLEDGE    = 'ACKNOWLEDGE';
+  var NODE_FAIL      = 'NODE_FAIL';
+  var NODE_REMOVE    = 'NODE_REMOVE';
+
+  // Election messages
+  var ELECTION       = 'ELECTION';
+  var LEADER         = 'LEADER';
 
   // myPid uniquely identifies this process.
   var myPid;
@@ -91,16 +102,15 @@ var Network = (function () {
 
     // Completely recalculate the topology.
     // TODO Optimise to only recalculate stuff that changes.
-    var topology = {};
+
+    var topology = { leader: myPid };
+
     // Create the 'forward' topology based on the peer list.
     topology[FORWARD] = {};
     pids.sort().forEach(function (pid, i) {
       var iNext = (i + 1 >= pids.length) ? 0 : i + 1;
       topology[FORWARD][pid] = pids[iNext];
     });
-
-    // The leader is always the process with the lowest pid.
-    topology.leader = pids[0];
 
     // Create the 'backward' topology as the reverse of the
     // forwards topology.
@@ -157,13 +167,12 @@ var Network = (function () {
     // Before initialisation there is no leader, so each process
     // should compute and display its own player list.
     if (!isInitialised) {
-      console.log(generateTopology());
       render(generateTopology());
     }
   });
 
   function sendToPid(targetPid, room, type, message) {
-    Utility.log('Sending to peer ' + targetPid);
+    Utility.log('Sending ' + type + ' to peer ' + targetPid);
     var peer = pidMap[targetPid];
     Utility.assert(peer !== undefined, 'target missing');
     peer.sendDirectly(room, type, message);
@@ -187,16 +196,18 @@ var Network = (function () {
     // Give the first turn to the leader.
     if (leader === myPid) {
       Utility.log("It's my turn first!");
-      // Register this process as the initial leader before checking the
-      // topology since only the leader may check it.
-      topology = generateTopology();
-      topology.leader = leader;
-      broadcastTopology(topology);
-      checkTopology();
+
+      becomeLeader();
+
       Application.onFirstTurn(myPid);
     }
 
     onJoin();
+  }
+
+  function becomeLeader() {
+    topology = generateTopology();
+    broadcastTopology(topology);
   }
 
   webrtc.on('readyToCall', function () {
@@ -208,21 +219,33 @@ var Network = (function () {
     // TODO Replace dodgy busy wait with something good.
 
     webrtc.on('channelMessage', function (peer, room, data, other) {
+      Utility.logMessage(peer, data.type, data.payload);
+
+      // Ignore messages from failed processes.
+      if (CheckState.failed[peer.id]) {
+        Utility.log('Ignoring message from failed node ' + peer.id);
+        return;
+      }
+
+      // Always acknowledge all non-ACKNOWLEDGE messages from known,
+      // non-failed nodes.
+      if (data.type !== ACKNOWLEDGE &&
+          topology && topology[FORWARD][peer.id]) {
+          sendToPid(peer.id, ROOM, ACKNOWLEDGE);
+      }
+
       switch (data.type) {
         case TOPOLOGY:
-          Utility.logMessage(peer, 'TOPOLOGY', data.payload);
           onTopologyUpdate(data.payload);
           break;
 
         case TURN:
-          Utility.logMessage(peer, 'TURN', data.payload);
           onTurnMessage(data.payload);
           break;
 
         case READY:
-          Utility.logMessage(peer, 'READY', data.payload);
           if (isInitialised) {
-            peer.sendDirectly(ROOM, PREINITIALISED, topology);
+            sendToPid(peer.id, ROOM, PREINITIALISED, topology);
           } else {
             readySet[peer.id] = true;
             console.log(readySet);
@@ -237,13 +260,12 @@ var Network = (function () {
             if (mayInitialise) {
               initialise();
               Application.initialise();
-              peer.sendDirectly(ROOM, INITIALISE);
+              sendToPid(peer.id, ROOM, INITIALISE);
             }
           }
           break;
 
         case STATE:
-          Utility.logMessage(peer, 'STATE', data.payload);
           Application.onUpdate(data.payload);
 
           // in case we missed the initialise but joined the room since
@@ -255,7 +277,6 @@ var Network = (function () {
 
         case INITIALISE:
           // TODO convert INITIALISE related logic into something better.
-          Utility.logMessage(peer, 'INITIALISE', data.payload);
           if (isInitialised) break;
           initialise();
           Application.initialise();
@@ -263,7 +284,6 @@ var Network = (function () {
 
         case PREINITIALISED:
           // TODO convert INITIALISE related logic into something better.
-          Utility.logMessage(peer, 'PREINITIALISED', data.payload);
           if (!isInitialised) {
             isInitialised = true;
             onJoin();
@@ -273,22 +293,15 @@ var Network = (function () {
           break;
 
         case CARD_COUNT:
-          Utility.logMessage(peer, 'CARD_COUNT', data.payload);
           Application.onUpdateCardCount(peer.id, data.payload);
           break;
 
         case CHECK:
-          Utility.logMessage(peer, 'CHECK', data.payload);
-          peer.sendDirectly(ROOM, CHECK_RESP);
-          break;
-
-        case CHECK_RESP:
-          Utility.logMessage(peer, 'CHECK_RESP', data.payload);
-          receiveNeighbourResponse(CheckState);
+          // No special logic, just the ACKNOWLEDGE send from outside
+          // the switch statement.
           break;
 
         case NODE_FAIL:
-          Utility.logMessage(peer, 'NODE_FAIL', data.payload);
           if(myPid === leader) {
             handleNodeFailure(peer.id, data.payload.failedPid, topology);
           }
@@ -298,12 +311,36 @@ var Network = (function () {
           CheckState.failed[data.payload.failedPid] = true;
           break;
 
-        case LEADER_DOWN:
-          generateTopology();
+        case ELECTION:
+          // Propogate the election call if we haven't already.
+          if (electionHandler === null) callElection(topology);
+          break;
+
+        case ACKNOWLEDGE:
+          // TODO Remove the timeout for detection of the acknowledger
+          // being dead.
+          if (peer.id === CheckState.neighbour) {
+            receiveNeighbourResponse(CheckState);
+          }
+
+          // If the sender has a higher pid than me, then don't win any
+          // current election.
+          if (peer.id > myPid && canWinElection) {
+            canWinElection = false;
+          }
+          break;
+
+        case LEADER:
+          // End any ongoing election and set the new leader.
+          topology.leader = peer;
+          clearTimeout(electionHandler);
+          canWinElection = false;
+          electionHandler = null;
           break;
 
         default:
-          throw 'incomplete branch coverage in message handler switch statement';
+          throw 'incomplete branch coverage in message handler ' +
+            'switch statement: ' + data.type;
       }
     });
   });
@@ -383,17 +420,9 @@ var Network = (function () {
 
     // 2. Remember and broadcast the new topology if it is different.
     if (!topologiesAreEqual(newTopology, topology)) {
-      // If someone else is the new leader, then I wait until they
-      // acknowledge it with their own topology broadcast before
-      // I stop acting as the leader.
-      if (newTopology.leader !== myPid) {
-        sendToPid(newTopology.leader, ROOM, TOPOLOGY, newTopology);
-        newTopology.leader = myPid;
-      } else {
-        topology = newTopology;
-        render(newTopology);
-        broadcastTopology(newTopology);
-      }
+      topology = newTopology;
+      render(newTopology);
+      broadcastTopology(newTopology);
     }
   }
 
@@ -539,7 +568,7 @@ var Network = (function () {
   function checkNeighbour(checkState) {
     // Report node if they haven't responded since last ping
     if (!checkState.responseReceived) {
-      reportNeighbourFailure(checkState, leader);
+      reportNeighbourFailure(checkState, topology.leader);
       return;
     }
 
@@ -550,7 +579,7 @@ var Network = (function () {
 
     // Set up next response check/ping
     checkState.checkTimeoutHandler = setTimeout(function () {
-      checkNeighbour(checkState, leader);
+      checkNeighbour(checkState, topology.leader);
     }, checkState.checkInterval);
   }
 
@@ -570,25 +599,27 @@ var Network = (function () {
 
   // Tell the leader our neighbour has failed
   function reportNeighbourFailure(checkState, leaderPid) {
-    if (checkState.neighbour !== leaderPid) {
-      Utility.log('*** NODE FAIL *** -- Neighbour ' +
-                  checkState.neighbour +
-                  ' has failed');
+    Utility.log('*** NODE FAIL *** -- Neighbour ' +
+        checkState.neighbour + ' has failed');
 
-      if (leaderPid !== myPid) {
-        sendToPid(leaderPid, ROOM, NODE_FAIL,
-                  { failedPid: checkState.neighbour });
-      }
-      // Leader isn't in its own pidMap so can't message itself
-      else {
-        handleNodeFailure(myPid, checkState.neighbour, topology);
-      }
+    // The leader is authorised to handle node failures directly.
+    if (leaderPid === myPid) {
+      handleNodeFailure(myPid, checkState.neighbour, topology);
+      return;
     }
-    else {
+
+    // If the leader died, let everyone know they're dead,
+    // and elect a new one.
+    if (checkState.neighbour === leaderPid) {
       Utility.log("The leader has failed!");
-      webrtc.sendDirectlyToAll(ROOM, LEADER_DOWN);
-      generateTopology();
+      handleNodeFailure(checkState.neighbour, topology);
+      callElection(topology);
+      return;
     }
+
+    // If we're not the leader, and the leader is alive, then we need
+    // to tell the leader so they can handle it.
+    sendToPid(leaderPid, ROOM, NODE_FAIL, { failedPid: checkState.neighbour });
   }
 
   // As the leader, deal with a failed node
@@ -598,7 +629,7 @@ var Network = (function () {
   // 1        4  =>  1        X  =>  1      |
   //  \      /        \      /        \     |
   //   6 -- 5          6 -- 5          6 -- 5
-  function handleNodeFailure(reporterPid, failedPid, topology) {
+  function handleNodeFailure(failedPid, topology) {
     Utility.log('*** FAILED NODE ***\n' +
           failedPid + ' has been reported as failed to the me');
 
@@ -619,6 +650,64 @@ var Network = (function () {
     // Register the node as dead and inform everyone that it is dead.
     CheckState.failed[failedPid] = true;
     webrtc.sendDirectlyToAll(ROOM, NODE_REMOVE, { failedPid: failedPid });
+  }
+
+  // ==== Leader failure handling.
+  //
+  // When the leader fails, we obviously can't just tell the leader
+  // to restitch the ring, so we need a new strategy.
+  //
+  // The strategy must be an election for a new leader, since we must
+  // always have a leader.
+  // This new leader will be responsible for restitching the ring after
+  // the election.
+  //
+  // Nodes dying won't kill the turn taking ring, since the leader will
+  // save us.
+  // We don't have a leader to save us during the election though,
+  // so we can't just reuse our turn-taking ring for a ring based
+  // election algorithm.
+  //
+  // Therefore we use the next most obvious and easy option;
+  // the bully algorithm.
+
+  // By default, we're not in an election.
+  var electionHandler = null;
+  var canWinElection = false;
+
+  var ELECTION_DURATION = MAX_CHECK_INTERVAL;
+
+  function callElection(topology) {
+    // 1. The election caller contacts all processes who would get priority
+    // over the caller when selecting a leader.
+    // If there are no such processes, the caller instantly wins the election.
+    var higherPids =
+      Object.keys(topology[FORWARD])
+            .filter(function (pid) { return pid > myPid; });
+    if (higherPids.length === 0) {
+      winElection();
+      return;
+    }
+    higherPids.forEach(function(pid) { sendToPid(pid, ROOM, ELECTION); });
+
+    // 2. If the election caller has no responses after a timeout,
+    // they win the election.
+    electionHandler = setTimeout(function () {
+      if (canWinElection) winElection();
+    }, ELECTION_DURATION);
+
+    // 3. If no leader is selected after a longer timeout, then the
+    // caller wins the election, even if they "can't win".
+    // The longer timeout should allow time for a complete election
+    // called by every process with a higher id.
+    electionHandler =
+      setTimeout(winElection, higherPids.length * ELECTION_DURATION);
+  }
+
+  // Win the election by announcing that this process is the new leader.
+  function winElection() {
+    webrtc.sendDirectlyToAll(ROOM, LEADER);
+    becomeLeader();
   }
 
   return {
