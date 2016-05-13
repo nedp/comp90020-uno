@@ -272,11 +272,13 @@ var Application = (function () {
     // If there are duplicates, just take the first one.
     var originalCard = LocalState.requestSpecial || card;
     var cardIndex = LocalState.myHand.indexOf(originalCard);
+
+    // Only remove the played card if it exists in the hand.
     // Prevents issue when the initial card is a wild card, the user should get
     // to choose the colour and then skip their turn, it's a side effect but
     // one that works reasonably nicely (without this condition they play
-    // the wild card and then it removes the first card in their hand also)
-    if (cardIndex > 0) {
+    // the wild card and then it removes the first card in their hand also).
+    if (cardIndex > -1) {
       LocalState.myHand.splice(cardIndex, 1);
     }
 
