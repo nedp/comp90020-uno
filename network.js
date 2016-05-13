@@ -302,7 +302,7 @@ var Network = (function () {
           break;
 
         case NODE_FAIL:
-          if(myPid === leader) {
+          if(myPid === topology.leader) {
             handleNodeFailure(peer.id, data.payload.failedPid, topology);
           }
           break;
@@ -619,7 +619,10 @@ var Network = (function () {
 
     // If we're not the leader, and the leader is alive, then we need
     // to tell the leader so they can handle it.
-    sendToPid(leaderPid, ROOM, NODE_FAIL, { failedPid: checkState.neighbour });
+    // Broadcast it rather than sending directly in case the leader changes.
+    webrtc.sendDirectlyToAll(ROOM, NODE_FAIL, {
+      failedPid: checkState.neighbour
+    });
   }
 
   // As the leader, deal with a failed node
