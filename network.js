@@ -402,7 +402,7 @@ var Network = (function () {
     }
   }
 
-  function broadcastTopology() {
+  function broadcastTopology(topology) {
     webrtc.sendDirectlyToAll(ROOM, TOPOLOGY, topology);
   }
 
@@ -576,16 +576,21 @@ var Network = (function () {
     Utility.log('*** FAILED NODE ***\n' +
           failedPid + ' has been reported as failed to the me');
 
+    // Short circuit the dead node in the topology.
     var after  = topology[FORWARD][failedPid];
     var before = topology[BACKWARD][failedPid];
     topology[FORWARD][before] = after;
     topology[BACKWARD][after] = before;
 
+    // Remove the dead node from the topology.
     delete topology[FORWARD][failedPid];
     delete topology[BACKWARD][failedPid];
 
-    broadcastTopology();
+    // Render and broadcast the topology.
+    broadcastTopology(topology);
     renderPlayers(topology);
+
+    // Register the node as dead and inform everyone that it is dead.
     CheckState.failed[failedPid] = true;
     webrtc.sendDirectlyToAll(ROOM, NODE_REMOVE, { failedPid: failedPid });
   }
