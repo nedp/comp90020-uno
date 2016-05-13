@@ -14,12 +14,17 @@ var Application = (function () {
     myHand: [],
     isInitialised: false,
     cardCounts: {},
+    winner: null,
   };
 
   // TODO convert INITIALISE related logic into something better.
   function initialise() {
     Utility.assert(!LocalState.isInitialised, 'Application initialised twice');
     LocalState.isInitialised = true;
+
+    // Clear any state from a previous game
+    LocalState.winner = null;
+    LocalState.myHand = [];
 
     // initialise my hand
     for (var x = 0; x < 7; x++) {
@@ -83,6 +88,17 @@ var Application = (function () {
   // update the number of cards in our peers hand
   function onUpdateCardCount(peerId, numCards) {
     LocalState.cardCounts[peerId] = numCards;
+
+    updateView();
+  }
+
+  // When someone else wins we need to show this
+  function onSomoneWon(winner) {
+    // mark the winner of the game
+    LocalState.winner = winner;
+
+    // Prepare for the next game by uninitialising our state
+    LocalState.isInitialised = false;
 
     updateView();
   }
@@ -184,10 +200,20 @@ var Application = (function () {
     // Update my local card count and tell everyon else
     updateMyCardCount();
 
-    // 4. Pass the turn to the next process.
-    // TODO Wait for an ack.
-    Network.endTurn(turnType, GameState, nCardsToDraw);
-    LocalState.isMyTurn = false;
+    // winning condition
+    if (LocalState.myHand.length == 0) {
+      // Last card has been played, let everyone know I've won
+      Network.broadcastWin(GameState);
+      LocalState.winner = Network.myId;
+
+      // Prepare for the next game by uninitialising our state
+      LocalState.isInitialised = false;
+    } else {
+      // 4. Pass the turn to the next process.
+      // TODO Wait for an ack.
+      Network.endTurn(turnType, GameState, nCardsToDraw);
+      LocalState.isMyTurn = false;
+    }
 
     // 6. update my own view
     updateView();
@@ -343,6 +369,7 @@ var Application = (function () {
     initialise: initialise,
     onUpdate: onUpdate,
     onUpdateCardCount: onUpdateCardCount,
+    onSomoneWon: onSomoneWon,
 
     // Turn taking and drawing
     onFirstTurn: onFirstTurn,

@@ -16,6 +16,7 @@ var GameView = React.createClass({
         players.push(<PlayerView key={value}
                                  takingTurn={this.state.turnOwner === value}
                                  playerId={value}
+                                 winner={value === this.state.winner}
                                  cardCount={cardCount}
                                  idx={++cntPlayers}></PlayerView>);
       }.bind(this));
@@ -114,11 +115,19 @@ var PlayerView = React.createClass({
                        </span>;
     }
 
+    var winnerLabel = null;
+    if (this.props.winner) {
+      winnerLabel = <span className="label label-success">
+                       WINNER!
+                     </span>;
+    }
+
     return <div>
              <p className={playerClass}>
                Player {this.props.idx}
-               &nbsp;{ cardCountLabel }&nbsp;
+               { cardCountLabel }
                ({this.props.playerId})
+               { winnerLabel }
              </p>
            </div>;
   },
