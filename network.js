@@ -17,6 +17,7 @@ var Network = (function () {
   var READY          = 'ask-init';
   var INITIALISE     = 'init';
   var PREINITIALISED = 'pre-init';
+  var CARD_COUNT     = 'card-count';
   var CHECK          = 'check';
   var CHECK_RESP     = 'resp';
   var NODE_FAIL      = 'fail';
@@ -239,7 +240,6 @@ var Network = (function () {
               peer.sendDirectly(ROOM, INITIALISE);
             }
           }
-
           break;
 
         case STATE:
@@ -270,6 +270,11 @@ var Network = (function () {
             Application.initialise();
           }
           // TODO Register with the leader
+          break;
+
+        case CARD_COUNT:
+          Utility.logMessage(peer, 'CARD_COUNT', data.payload);
+          Application.onUpdateCardCount(peer.id, data.payload);
           break;
 
         case CHECK:
@@ -400,6 +405,10 @@ var Network = (function () {
     webrtc.sendDirectlyToAll(ROOM, STATE, newState);
   }
 
+  function broadcastCardCount(myCardCount) {
+    webrtc.sendDirectlyToAll(ROOM, CARD_COUNT, myCardCount);
+  }
+
   // Called when a process receives a topology update.
   function onTopologyUpdate(newTopology) {
     console.log('got topology ' + newTopology);
@@ -440,46 +449,73 @@ var Network = (function () {
   function onTurnMessage(payload) {
     var newState = payload.newState;
     var turnType = payload.turnType;
-    Utility.assert(newState.turnOwner === myPid,
-        'received a turn with the wrong pid');
+    var nCardsToDraw = payload.nCardsToDraw;
+
+    // Adhere to the direction which was passed to us.
+    direction = payload.direction;
 
     if (!isInitialised) {
-      endTurn(TurnType.NORMAL, newState);
+      endTurn(turnType, newState, nCardsToDraw);
       return;
     }
 
-    // Broadcast the state to everyone now that we know we have
-    // successfully made it to our turn
-    webrtc.sendDirectlyToAll(ROOM, STATE, newState);
+    // Accept the new turn.
+    newState.turnOwner = myPid;
 
-    // Update our local state
+    // Draw cards if we're told to.
+    if (nCardsToDraw) {
+      Application.draw(nCardsToDraw);
+      // TODO update our card count in `newState`.
+    }
+
+    // Update our local state and broadcast, after we updated
+    // it with any card-draws we had to do.
     Application.onUpdate(newState);
+    broadcastState(newState);
 
     // If we got skipped, give the turn to the next person,
     // otherwise take our turn.
-    if (turnType === TurnType.SKIP) {
-      endTurn(TurnType.NORMAL, newState);
-    } else {
-      Utility.assertEquals(TurnType.NORMAL, turnType,
-          'turns must have a known type');
-      Application.onTurnReceived(newState);
+    switch (turnType) {
+      case TurnType.SKIP:
+        endTurn(TurnType.NORMAL, newState);
+        break;
+
+      case TurnType.NORMAL:
+        Application.onTurnReceived();
+        break;
+
+      // Note: REVERSE turn messages shouldn't actually be sent,
+      // they should be converted to NORMAL messages with the direction
+      // flipped.
+      default:
+        throw "Unknown turn type";
     }
   }
 
   // Ends the current player's turn, checks the topology to find
   // the next player, then sends the turn to the next player.
-  function endTurn(turnType, newState) {
+  function endTurn(turnType, newState, nCardsToDraw) {
     Utility.assert(newState.turnOwner === myPid,
         "tried to take a turn when it's not our turn");
 
-    console.log('turn type:');
-    console.log(turnType);
+    // Flip the turn direction if this is a reverse turn.
+    var newDirection;
+    if (turnType === TurnType.REVERSE) {
+      turnType = TurnType.NORMAL;
+      newDirection = (direction === FORWARD) ? BACKWARD : FORWARD;
+    } else {
+      newDirection = direction;
+    }
+    passTurn(turnType, newDirection, newState, nCardsToDraw);
+  }
 
-    var nextPlayer = topology[direction][myPid];
-    newState.turnOwner = nextPlayer;
+  function passTurn(turnType, newDirection, newState, nCardsToDraw) {
+    var nextPlayer = topology[newDirection][myPid];
     sendToPid(nextPlayer, ROOM, TURN, {
       turnType: turnType,
       newState: newState,
+      direction: newDirection,
+      nCardsToDraw: nCardsToDraw,
     });
   }
 
@@ -590,8 +626,17 @@ var Network = (function () {
     readyUp: readyUp,
     sendToPid: sendToPid,
     broadcastState: broadcastState,
-    get leader() {
-      return leader;
+    broadcastCardCount: broadcastCardCount,
+    get players() {
+      // return the forward format of the topology
+      if (topology) {
+        return Object.keys(topology[FORWARD]);
+      } else {
+        return [];
+      }
+    },
+    get myId() {
+      return myPid;
     },
   };
 })();

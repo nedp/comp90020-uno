@@ -33,7 +33,7 @@ var Utility = (function () {
 
   function logMessage(peer, label, payload) {
     log('Peer ' + peer.id + ' sent us a ' + label + ' message: "' +
-         payload + '"');
+         JSON.stringify(payload) + '"');
   }
 
   function logTopology(topology, directions) {
