@@ -45,8 +45,10 @@ var Application = (function () {
   // they're ready to start the game.
   // This allows players to wait until we have agreed that everyone is
   // ready before starting the game.
+  // Dynamically bind Network.readyUp instead of statically binding it,
+  // to make the dependency more flexible.
   function readyUp() {
-    Network.readyUp();
+    return Network.readyUp();
   }
 
   // === Turn and state functions ===
@@ -114,17 +116,8 @@ var Application = (function () {
 
   // Called when the previous process passes the turn to us.
   function onTurnReceived() {
-    // 1. Allow the player to take their turn.
+    // Allow the player to take their turn.
     LocalState.isMyTurn = true;
-
-    // if the top card is a draw, draw the stated number of cards
-    var tc = CardFetcher.fromString(GameState.topCard);
-    if (tc.type == CardFetcher.CARDTYPES.DRAW2) {
-      onDraw(2);
-    } else if (tc.type == CardFetcher.CARDTYPES.WILDDRAW4) {
-      onDraw(4);
-    }
-
     updateView();
   }
 
@@ -145,13 +138,14 @@ var Application = (function () {
   }
 
   // Called when another process tells this process to draw cards.
-  // As in, pick up some cards, not render them.
+  //
+  // Draw here means "picks up", but we also render the cards.
   //
   // This has nothing to do with taking a turn or holding the lock
-  // on the game state.
-  // Locally displayed cards are not part of the game state,
+  // on the shared game state.
+  // Locally displayed cards are not part of the shared game state,
   // so no message has to be sent.
-  function onDraw(count) {
+  function draw(count) {
     for (var x = 0; x < count; x++) {
       LocalState.myHand.push(CardFetcher.fetchCard());
     }
@@ -176,7 +170,8 @@ var Application = (function () {
   }
 
   // Called when the player takes their turn using the UI.
-  function finishTurn() {
+  function finishTurn(turnType, nCardsToDraw) {
+    console.log('finishTurn');
 
     // 1. Take the turn, by counting how many turns have occured.
     // TODO replace with actual turn taking logic using cards, etc.
@@ -190,10 +185,8 @@ var Application = (function () {
     updateMyCardCount();
 
     // 4. Pass the turn to the next process.
-    // TODO base `type` on which card was played.
     // TODO Wait for an ack.
-    var turnType = TurnType.NORMAL;
-    Network.endTurn(turnType, GameState);
+    Network.endTurn(turnType, GameState, nCardsToDraw);
     LocalState.isMyTurn = false;
 
     // 6. update my own view
@@ -211,13 +204,14 @@ var Application = (function () {
   // Called when a user wishes to pickup from the deck instead of playing
   // a card from their hand
   function pickupCard() {
-    // only pickup if it's our turn
+    // Only pickup if it's our turn
     if (LocalState.isMyTurn) {
-      // add a new card to my hand from the deck
+      // Add a new card to my hand from the deck
       LocalState.myHand.push(CardFetcher.fetchCard());
 
-      // finish the turn
-      finishTurn();
+      // Finish the turn.
+      // If we picked up a card, then the next player gets a normal turn.
+      finishTurn(TurnType.NORMAL);
     }
   }
 
@@ -243,25 +237,20 @@ var Application = (function () {
 
   // Called when a user attempts to play a card from their hand
   function playCard(card) {
-    // get the card representation of the top card
+    // Get the card representation of the top card
     var tc = CardFetcher.fromString(GameState.topCard);
 
-    console.log(card);
-    // See if the move was valid.
+    // Don't allow invalid moves to be made.
     if (!LocalState.isMyTurn || !isValidTurn(card, tc)) {
       Utility.log('Invalid Turn!');
       return;
     }
-
     Utility.log('Valid Move!');
 
     // If it's a wild card and the suit is not already selected,
     // turn the view into a suit selection.
-    if ((card.type === CardFetcher.CARDTYPES.WILD ||
-          card.type === CardFetcher.CARDTYPES.WILDDRAW4) &&
-        !card.suit) {
+    if (card.needsSuitSelection) {
       LocalState.requestSpecial = card;
-
       updateView();
       return;
     }
@@ -291,7 +280,7 @@ var Application = (function () {
       LocalState.requestSpecial = null;
     }
 
-    finishTurn();
+    finishTurn(card.turnType, card.nCardsToDraw);
   }
 
   function cancelSuitSelection() {
@@ -358,7 +347,7 @@ var Application = (function () {
     // Turn taking and drawing
     onFirstTurn: onFirstTurn,
     onTurnReceived: onTurnReceived,
-    onDraw: onDraw,
+    draw: draw,
 
     // Uno/gotcha
     onUnoMessage: onUnoMessage,
