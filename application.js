@@ -13,6 +13,7 @@ var Application = (function () {
   var LocalState = {
     myHand: [],
     isInitialised: false,
+    cardCounts: {},
   };
 
   // TODO convert INITIALISE related logic into something better.
@@ -20,11 +21,23 @@ var Application = (function () {
     Utility.assert(!LocalState.isInitialised, 'Application initialised twice');
     LocalState.isInitialised = true;
 
-    // TODO initialise the deck and hands
+    // initialise my hand
     for (var x = 0; x < 7; x++) {
       LocalState.myHand.push(CardFetcher.fetchCard());
     }
 
+    // Assume everyone has 7 cards, we will receive updates from them that
+    // overwrite this anyway
+    var cardCounts = {};
+    Network.players.forEach(function (playerId) {
+      cardCounts[playerId] = 7;
+    });
+    LocalState.cardCounts = cardCounts;
+
+    // notify everyone of my card count
+    updateMyCardCount();
+
+    // draw the view with my newly drawn cards
     updateView();
   }
 
@@ -61,6 +74,13 @@ var Application = (function () {
         'turnsTaken must monotonically increase; new: ' + newState.turnsTaken +
         '; old: ' + GameState.turnsTaken);
     GameState = newState;
+
+    updateView();
+  }
+
+  // update the number of cards in our peers hand
+  function onUpdateCardCount(peerId, numCards) {
+    LocalState.cardCounts[peerId] = numCards;
 
     updateView();
   }
@@ -135,6 +155,24 @@ var Application = (function () {
     for (var x = 0; x < count; x++) {
       LocalState.myHand.push(CardFetcher.fetchCard());
     }
+
+    updateMyCardCount();
+  }
+
+  // Called when we want to update the card count shown locally
+  // as well as sending out card count to others
+  function updateMyCardCount() {
+    var count = LocalState.myHand.length;
+
+    // update my local state
+    LocalState.cardCounts[Network.myId] = count;
+
+    // update the view
+    // this needs to be done quickly to give me the most time to press uno
+    updateView();
+
+    // update the network with my new number of cards
+    Network.broadcastCardCount(count);
   }
 
   // Called when the player takes their turn using the UI.
@@ -148,6 +186,9 @@ var Application = (function () {
     // TODO 2. If I have only one card left, add me to the Uno list.
     // TODO 3. If I have more than one card left, remove me from the Uno list.
 
+    // Update my local card count and tell everyon else
+    updateMyCardCount();
+
     // 4. Pass the turn to the next process.
     // TODO base `type` on which card was played.
     // TODO Wait for an ack.
@@ -155,7 +196,7 @@ var Application = (function () {
     Network.endTurn(turnType, GameState);
     LocalState.isMyTurn = false;
 
-    // 5. update my own view
+    // 6. update my own view
     updateView();
   }
 
@@ -231,7 +272,13 @@ var Application = (function () {
     // If there are duplicates, just take the first one.
     var originalCard = LocalState.requestSpecial || card;
     var cardIndex = LocalState.myHand.indexOf(originalCard);
-    LocalState.myHand.splice(cardIndex, 1);
+    // Prevents issue when the initial card is a wild card, the user should get
+    // to choose the colour and then skip their turn, it's a side effect but
+    // one that works reasonably nicely (without this condition they play
+    // the wild card and then it removes the first card in their hand also)
+    if (cardIndex > 0) {
+      LocalState.myHand.splice(cardIndex, 1);
+    }
 
     // Place the card on top.
     GameState.topCard = card.toString();
@@ -304,6 +351,7 @@ var Application = (function () {
     // State changes
     initialise: initialise,
     onUpdate: onUpdate,
+    onUpdateCardCount: onUpdateCardCount,
 
     // Turn taking and drawing
     onFirstTurn: onFirstTurn,

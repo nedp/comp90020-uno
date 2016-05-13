@@ -17,6 +17,7 @@ var Network = (function () {
   var READY = 'ask-init';
   var INITIALISE = 'init';
   var PREINITIALISED = 'pre-init';
+  var CARD_COUNT = 'card-count';
 
   // myPid uniquely identifies this process.
   var myPid;
@@ -251,6 +252,11 @@ var Network = (function () {
           // TODO Register with the leader
           break;
 
+        case CARD_COUNT:
+          Utility.logMessage(peer, 'CARD_COUNT', data.payload);
+          Application.onUpdateCardCount(peer.id, data.payload);
+          break;
+
         default:
           throw 'incomplete branch coverage in message handler switch statement';
       }
@@ -354,6 +360,10 @@ var Network = (function () {
     webrtc.sendDirectlyToAll(ROOM, STATE, newState);
   }
 
+  function broadcastCardCount(myCardCount) {
+    webrtc.sendDirectlyToAll(ROOM, CARD_COUNT, myCardCount);
+  }
+
   // Called when a process receives a topology update.
   function onTopologyUpdate(newTopology) {
     console.log('got topology ' + newTopology);
@@ -441,8 +451,17 @@ var Network = (function () {
     readyUp: readyUp,
     sendToPid: sendToPid,
     broadcastState: broadcastState,
-    get leader() {
-      return leader;
+    broadcastCardCount: broadcastCardCount,
+    get players() {
+      // return the forward format of the topology
+      if (topology) {
+        return Object.keys(topology[FORWARD]);
+      } else {
+        return [];
+      }
+    },
+    get myId() {
+      return myPid;
     },
   };
 })();
