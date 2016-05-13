@@ -560,7 +560,7 @@ var Network = (function () {
     
     newState.turnOwner = nextPlayer;
     sendToPid(nextPlayer, ROOM, TURN, turnMessage, function () {
-      endTurn(turnType, newState, topology[nextPlayer]);
+      endTurn(turnType, newState, topology[direction][nextPlayer]);
     });
   }
 
