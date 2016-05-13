@@ -11,13 +11,18 @@ var Network = (function () {
                                  'everyone');
 
   // Message types.
-  var TOPOLOGY = 'top';
-  var TURN = 'turn';
-  var STATE = 'state';
-  var READY = 'ask-init';
-  var INITIALISE = 'init';
+  var TOPOLOGY       = 'top';
+  var TURN           = 'turn';
+  var STATE          = 'state';
+  var READY          = 'ask-init';
+  var INITIALISE     = 'init';
   var PREINITIALISED = 'pre-init';
-  var CARD_COUNT = 'card-count';
+  var CARD_COUNT     = 'card-count';
+  var CHECK          = 'check';
+  var CHECK_RESP     = 'resp';
+  var NODE_FAIL      = 'fail';
+  var NODE_REMOVE    = 'remove';
+  var LEADER_DOWN    = 'down';
 
   // myPid uniquely identifies this process.
   var myPid;
@@ -30,6 +35,22 @@ var Network = (function () {
   // The leader permanently holds the lock on the topology.
   var topology;
   var readySet = {};
+
+  // Upper and lower bounds on neighbour check times
+  var MAX_CHECK_INTERVAL = 10000;
+  var MIN_CHECK_INTERVAL = 2000;
+  // checkInterval = CHECK_FACTOR * lastResponseTime
+  var CHECK_FACTOR       = 3;
+
+  var CheckState =
+    {
+      neighbour:           null,
+      checkInterval:       MAX_CHECK_INTERVAL,
+      lastPingTime:        null,
+      checkTimeoutHandler: null,
+      failed:              {},
+      responseReceived:    true,
+    };
 
   // Returns true if the topologies have the same leader, players,
   // and order of the players in both directions.
@@ -256,6 +277,31 @@ var Network = (function () {
           Application.onUpdateCardCount(peer.id, data.payload);
           break;
 
+        case CHECK:
+          Utility.logMessage(peer, 'CHECK', data.payload);
+          peer.sendDirectly(ROOM, CHECK_RESP);
+          break;
+
+        case CHECK_RESP:
+          Utility.logMessage(peer, 'CHECK_RESP', data.payload);
+          receiveNeighbourResponse(CheckState);
+          break;
+
+        case NODE_FAIL:
+          Utility.logMessage(peer, 'NODE_FAIL', data.payload);
+          if(myPid === topology.leader) {
+            handleNodeFailure(peer.id, data.payload.failedPid, topology);
+          }
+          break;
+
+        case NODE_REMOVE:
+          CheckState.failed[data.payload.failedPid] = true;
+          break;
+
+        case LEADER_DOWN:
+          generateTopology();
+          break;
+
         default:
           throw 'incomplete branch coverage in message handler switch statement';
       }
@@ -351,7 +397,7 @@ var Network = (function () {
     }
   }
 
-  function broadcastTopology() {
+  function broadcastTopology(topology) {
     webrtc.sendDirectlyToAll(ROOM, TOPOLOGY, topology);
   }
 
@@ -368,6 +414,13 @@ var Network = (function () {
     console.log('got topology ' + newTopology);
     // 1. Remember the topology.
     topology = newTopology;
+
+    Utility.logTopology(topology, [FORWARD, BACKWARD]);
+
+    Utility.assert(topology[FORWARD][myPid] !== undefined,
+           'I have no neighbour!');
+
+    beginNeighbourChecking(CheckState, topology[FORWARD][myPid]);
 
     Utility.log('The leader is now ' + topology.leader);
 
@@ -471,6 +524,102 @@ var Network = (function () {
   // Not sure what the approach is here.
   //
   // Maybe handle it with a decorator around SimpleWebRTC?
+
+  // Start the checking after being given a topology
+  function beginNeighbourChecking(checkState, newNeighbour) {
+    if (checkState.checkTimeoutHandler !== null) {
+      clearTimeout(checkState.checkTimeoutHandler);
+    }
+    checkState.neighbour = newNeighbour;
+    checkState.responseReceived = true;
+    checkNeighbour(checkState);
+  }
+
+  // Ping a neighbour and expect a response
+  function checkNeighbour(checkState) {
+    // Report node if they haven't responded since last ping
+    if (!checkState.responseReceived) {
+      reportNeighbourFailure(checkState, topology.leader);
+      return;
+    }
+
+    // Set up the next receive
+    checkState.responseReceived = false;
+    checkState.lastPingTime = new Date();
+    sendToPid(checkState.neighbour, ROOM, CHECK);
+
+    // Set up next response check/ping
+    checkState.checkTimeoutHandler = setTimeout(function () {
+      checkNeighbour(checkState, topology.leader);
+    }, checkState.checkInterval);
+  }
+
+  // Register a neighbour's response
+  function receiveNeighbourResponse(checkState) {
+    checkState.responseReceived = true;
+
+    var newInterval = CHECK_FACTOR * (new Date() - checkState.lastPingTime);
+    if (newInterval > MAX_CHECK_INTERVAL) {
+      newInterval = MAX_CHECK_INTERVAL;
+    }
+    else if (newInterval < MIN_CHECK_INTERVAL) {
+      newInterval = MIN_CHECK_INTERVAL;
+    }
+    checkState.checkInterval = newInterval;
+  }
+
+  // Tell the leader our neighbour has failed
+  function reportNeighbourFailure(checkState, leaderPid) {
+    if (checkState.neighbour !== leaderPid) {
+      Utility.log('*** NODE FAIL *** -- Neighbour ' +
+                  checkState.neighbour +
+                  ' has failed');
+
+      if (leaderPid !== myPid) {
+        sendToPid(leaderPid, ROOM, NODE_FAIL,
+                  { failedPid: checkState.neighbour });
+      }
+      // Leader isn't in its own pidMap so can't message itself
+      else {
+        handleNodeFailure(myPid, checkState.neighbour, topology);
+      }
+    }
+    else {
+      Utility.log("The leader has failed!");
+      webrtc.sendDirectlyToAll(ROOM, LEADER_DOWN);
+      generateTopology();
+    }
+  }
+
+  // As the leader, deal with a failed node
+  // This should close the ring over the failed node:
+  //   2 -- 3          2 -- 3          2 -- 3
+  //  /      \        /      \        /     |
+  // 1        4  =>  1        X  =>  1      |
+  //  \      /        \      /        \     |
+  //   6 -- 5          6 -- 5          6 -- 5
+  function handleNodeFailure(reporterPid, failedPid, topology) {
+    Utility.log('*** FAILED NODE ***\n' +
+          failedPid + ' has been reported as failed to the me');
+
+    // Short circuit the dead node in the topology.
+    var after  = topology[FORWARD][failedPid];
+    var before = topology[BACKWARD][failedPid];
+    topology[FORWARD][before] = after;
+    topology[BACKWARD][after] = before;
+
+    // Remove the dead node from the topology.
+    delete topology[FORWARD][failedPid];
+    delete topology[BACKWARD][failedPid];
+
+    // Render and broadcast the topology.
+    broadcastTopology(topology);
+    render(topology);
+
+    // Register the node as dead and inform everyone that it is dead.
+    CheckState.failed[failedPid] = true;
+    webrtc.sendDirectlyToAll(ROOM, NODE_REMOVE, { failedPid: failedPid });
+  }
 
   return {
     endTurn: endTurn,
