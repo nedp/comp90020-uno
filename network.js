@@ -36,19 +36,20 @@ var Network = (function () {
   var readySet = {};
 
   // Upper and lower bounds on neighbour check times
-  var MAX_CHECK_INTERVAL = 4000;
-  var MIN_CHECK_INTERVAL = 500;
+  var MAX_CHECK_INTERVAL = 10000;
+  var MIN_CHECK_INTERVAL = 2000;
   // checkInterval = CHECK_FACTOR * lastResponseTime
   var CHECK_FACTOR       = 3;
 
   var NetworkState =
     {
-      checkInterval:    {},
-      lastPingTime:     null,
-      failed:           {},
-      responseReceived: true,
-      previousTurnMsg:  null,
-      pendingAcks:      {},
+      ackTimeoutInterval:     MAX_CHECK_INTERVAL,
+      neighbourCheckInterval: MAX_CHECK_INTERVAL,
+      checkTimeoutHandler:    null,
+      failed:                 {},
+      pendingAcks:            {},
+      seqNum:                 0,
+      neighbour:              null,
     };
 
   // Returns true if the topologies have the same leader, players,
@@ -100,6 +101,7 @@ var Network = (function () {
 
     // The leader is always the process with the lowest pid.
     topology.leader = pids[0];
+    Utility.log('LEADER = ' + topology.leader);
 
     // Create the 'backward' topology as the reverse of the
     // forwards topology.
@@ -121,7 +123,7 @@ var Network = (function () {
       players: Object.keys(topology[FORWARD]),
       leader: topology.leader,
     });
-  }
+    }
 
   var webrtc = new SimpleWebRTC({
     media: {
@@ -168,38 +170,66 @@ var Network = (function () {
     var peer = pidMap[targetPid];
     Utility.assert(peer !== undefined, 'target missing');
 
-    if (!(targetPid in NetworkState.pendingAcks)) {
-      NetworkState.pendingAcks[targetPid] = { seq: 0, acks: {} };
-    }
+    Utility.log('README!!!: ' + JSON.stringify(NetworkState));
 
-    var seq = NetworkState.pendingAcks[targetPid].seq;
+    var seq = NetworkState.seqNum;
 
     peer.sendDirectly(room, type, { msg: message, seq: seq });
-    NetworkState.pendingAcks[targetPid].seq =
-      (seq === Number.MAX_SAFE_INTEGER ? 0 : seq+1);
+    NetworkState.seqNum = (seq < Number.MAX_SAFE_INTEGER ? seq+1 : 0);
 
-    if (!(targetPid in NetworkState.checkInterval)) {
-      NetworkState.checkInterval[targetPid] = MAX_CHECK_INTERVAL;
+    var timeoutInterval;
+    if (targetPid === NetworkState.neighbour) {
+      timeoutInterval = NetworkState.neighbourCheckInterval;
+    }
+    else {
+      timeoutInterval = NetworkState.ackTimeoutInterval;
     }
 
-    var failTimeout = setTimeout(onFail,
-                                 NetworkState.checkInterval[targetPid]);
+    var failTimeout = setTimeout(onFail, timeoutInterval);
 
-    NetworkState.pendingAcks[targetPid].acks[seq] =
+    NetworkState.pendingAcks[seq] =
       {
         failTimeout: failTimeout,
         sendTime: new Date(),
       };
   }
 
-  function receiveMessage(peer, room, message) {
-    peer.sendDirectly(room, ACK, { seq: message.seq });
+  // Wrapper for sendDirectlyToAll that conforms to the seq-message format
+  function sendToAll(room, type, message) {
+    webrtc.sendDirectlyToAll(room, type, { msg: message, seq: null });
+  }
+
+  function receiveMessage(peer, room, type, message) {
+    if (type !== ACK) {
+      peer.sendDirectly(room, ACK, { seq: message.seq, type: type });
+    }
     return message.msg;
   }
 
   function receiveAck(targetPid, message) {
-    clearTimeout(NetworkState.pendingAcks[targetPid].acks[message.seq].failTimeout);
+    // Make sure we're expecting an ACK
+    if (!(message.seq in NetworkState.pendingAcks)) {
+      return;
+    }
 
+    // Stop the error function from executing
+    clearTimeout(NetworkState.pendingAcks[message.seq].failTimeout);
+
+    // Adapt the interval of checking
+    if (message.type === CHECK) {
+      var sendTime = NetworkState.pendingAcks[message.seq].sendTime;
+      var newInterval = CHECK_FACTOR * (new Date() - sendTime);
+      if (newInterval > MAX_CHECK_INTERVAL) {
+        newInterval = MAX_CHECK_INTERVAL;
+      }
+      else if (newInterval < MIN_CHECK_INTERVAL) {
+        newInterval = MIN_CHECK_INTERVAL;
+      }
+      NetworkState.neighbourCheckInterval = newInterval;
+    }
+
+    // Remove the message from the pending list
+    delete NetworkState.pendingAcks[message.seq];
   }
 
   // TODO convert INITIALISE related logic into something better.
@@ -237,27 +267,29 @@ var Network = (function () {
     Utility.log('My myPid is ' + myPid);
 
     webrtc.joinRoom(ROOM);
-    webrtc.sendDirectlyToAll(ROOM, READY);
+    sendToAll(ROOM, READY);
+
     // TODO Replace dodgy busy wait with something good.
 
     webrtc.on('channelMessage', function (peer, room, data, other) {
+      // Unwrap the message and ACK
+      var msg = receiveMessage(peer, ROOM, data.type, data.payload);
+
       switch (data.type) {
         case TOPOLOGY:
-          var msg = receiveMessage(peer, ROOM, data.payload);
           Utility.logMessage(peer, 'TOPOLOGY', msg);
           onTopologyUpdate(msg);
           break;
 
         case TURN:
-          Utility.logMessage(peer, 'TURN', data.payload);
-          onTurnMessage(data.payload);
-          peer.sendDirectly(ROOM, ACK, { msg: TURN });
+          Utility.logMessage(peer, 'TURN', msg);
+          onTurnMessage(msg);
           break;
 
         case READY:
-          Utility.logMessage(peer, 'READY', data.payload);
+          Utility.logMessage(peer, 'READY', msg);
           if (isInitialised) {
-            peer.sendDirectly(ROOM, PREINITIALISED, topology);
+            sendToPid(peer.id, ROOM, PREINITIALISED, topology);
           } else {
             readySet[peer.id] = true;
             console.log(readySet);
@@ -272,27 +304,26 @@ var Network = (function () {
             if (mayInitialise) {
               initialise();
               Application.initialise();
-              peer.sendDirectly(ROOM, INITIALISE);
+              sendToPid(peer.id, ROOM, INITIALISE);
             }
           }
 
           break;
 
         case STATE:
-          Utility.logMessage(peer, 'STATE', data.payload);
-          Application.onUpdate(data.payload);
+          Utility.logMessage(peer, 'STATE', msg);
+          Application.onUpdate(msg);
 
           // in case we missed the initialise but joined the room since
           if (!isInitialised) {
             initialise();
             Application.initialise();
           }
-          peer.sendDirectly(ROOM, ACK, { msg: STATE });
           break;
 
         case INITIALISE:
           // TODO convert INITIALISE related logic into something better.
-          Utility.logMessage(peer, 'INITIALISE', data.payload);
+          Utility.logMessage(peer, 'INITIALISE', msg);
           if (isInitialised) break;
           initialise();
           Application.initialise();
@@ -300,7 +331,7 @@ var Network = (function () {
 
         case PREINITIALISED:
           // TODO convert INITIALISE related logic into something better.
-          Utility.logMessage(peer, 'PREINITIALISED', data.payload);
+          Utility.logMessage(peer, 'PREINITIALISED', msg);
           if (!isInitialised) {
             isInitialised = true;
             onJoin();
@@ -311,7 +342,6 @@ var Network = (function () {
 
         case CHECK:
           Utility.logMessage(peer, 'CHECK', data.payload);
-          peer.sendDirectly(ROOM, ACK, { msg: CHECK });
           break;
 
         case ACK:
@@ -321,14 +351,14 @@ var Network = (function () {
           break;
 
         case NODE_FAIL:
-          Utility.logMessage(peer, 'NODE_FAIL', data.payload);
+          Utility.logMessage(peer, 'NODE_FAIL', msg);
           if(myPid === leader) {
-            handleNodeFailure(peer.id, data.payload.failedPid, topology);
+            handleNodeFailure(peer.id, msg.payload.failedPid, topology);
           }
           break;
 
         case NODE_REMOVE:
-          CheckState.failed[data.payload.failedPid] = true;
+          NetworkState.failed[msg.failedPid] = true;
           break;
 
         case LEADER_DOWN:
@@ -347,7 +377,7 @@ var Network = (function () {
     // TODO convert INITIALISE related logic into something better.
     var peers = webrtc.getPeers();
     if (peers.length !== 0) {
-      webrtc.sendDirectlyToAll(ROOM, READY);
+      sendToAll(ROOM, READY);
     }
   }
 
@@ -431,11 +461,11 @@ var Network = (function () {
   }
 
   function broadcastTopology() {
-    webrtc.sendDirectlyToAll(ROOM, TOPOLOGY, topology);
+    sendToAll(ROOM, TOPOLOGY, topology);
   }
 
   function broadcastState(newState) {
-    webrtc.sendDirectlyToAll(ROOM, STATE, newState);
+    sendToAll(ROOM, STATE, newState);
   }
 
   // Called when a process receives a topology update.
@@ -449,7 +479,9 @@ var Network = (function () {
     Utility.assert(topology[FORWARD][myPid] !== undefined,
            'I have no neighbour!');
 
-    beginNeighbourChecking(CheckState, topology[FORWARD][myPid]);
+    NetworkState.neighbour = topology[FORWARD][myPid];
+
+    checkNeighbour(NetworkState, NetworkState.neighbour);
 
     Utility.log('The leader is now ' + topology.leader);
 
@@ -488,7 +520,7 @@ var Network = (function () {
 
     // Broadcast the state to everyone now that we know we have
     // successfully made it to our turn
-    webrtc.sendDirectlyToAll(ROOM, STATE, newState);
+    sendToAll(ROOM, STATE, newState);
 
     // Update our local state
     Application.onUpdate(newState);
@@ -506,22 +538,30 @@ var Network = (function () {
 
   // Ends the current player's turn, checks the topology to find
   // the next player, then sends the turn to the next player.
-  function endTurn(turnType, newState) {
+  function endTurn(turnType, newState, pid) {
     Utility.assert(newState.turnOwner === myPid,
         "tried to take a turn when it's not our turn");
 
     console.log('turn type:');
     console.log(turnType);
 
-    var nextPlayer = topology[direction][myPid];
+    var nextPlayer;
+    if (pid === undefined) {
+      nextPlayer = topology[direction][myPid];
+    }
+    else {
+      nextPlayer = topology[direction][pid];
+    }
+
     var turnMessage = {
                         turnType: turnType,
                         newState: newState,
                       };
-    CheckState.previousTurn = turnMessage;
-
+    
     newState.turnOwner = nextPlayer;
-    sendToPid(nextPlayer, ROOM, TURN, turnMessage);
+    sendToPid(nextPlayer, ROOM, TURN, turnMessage, function () {
+      endTurn(turnType, newState, topology[nextPlayer]);
+    });
   }
 
   // === TODO Failure handling functions ===
@@ -530,70 +570,44 @@ var Network = (function () {
   //
   // Maybe handle it with a decorator around SimpleWebRTC?
 
-  // Start the checking after being given a topology
-  function beginNeighbourChecking(checkState, newNeighbour) {
-    if (checkState.checkTimeoutHandler !== null) {
-      clearTimeout(checkState.checkTimeoutHandler);
-    }
-    checkState.neighbour = newNeighbour;
-    checkState.responseReceived = true;
-    checkNeighbour(checkState);
-  }
-
   // Ping a neighbour and expect a response
-  function checkNeighbour(checkState) {
-    // Report node if they haven't responded since last ping
-    if (!checkState.responseReceived) {
-      reportNeighbourFailure(checkState, leader);
-      return;
-    }
-
+  function checkNeighbour(networkState, neighbourPid) {
     // Set up the next receive
-    checkState.responseReceived = false;
-    checkState.lastPingTime = new Date();
-    sendToPid(checkState.neighbour, ROOM, CHECK);
+    sendToPid(neighbourPid, ROOM, CHECK, null, function () {
+      reportNeighbourFailure(networkState);
+    });
 
     // Set up next response check/ping
-    checkState.checkTimeoutHandler = setTimeout(function () {
-      checkNeighbour(checkState, leader);
-    }, checkState.checkInterval);
-  }
-
-  // Register a neighbour's response
-  function receiveNeighbourResponse(checkState) {
-    checkState.responseReceived = true;
-
-    var newInterval = CHECK_FACTOR * (new Date() - checkState.lastPingTime);
-    if (newInterval > MAX_CHECK_INTERVAL) {
-      newInterval = MAX_CHECK_INTERVAL;
-    }
-    else if (newInterval < MIN_CHECK_INTERVAL) {
-      newInterval = MIN_CHECK_INTERVAL;
-    }
-    checkState.checkInterval = newInterval;
+    networkState.checkTimeoutHandler = setTimeout(function () {
+      checkNeighbour(networkState, neighbourPid);
+    }, networkState.neighbourCheckInterval);
   }
 
   // Tell the leader our neighbour has failed
-  function reportNeighbourFailure(checkState, leaderPid) {
-    if (checkState.neighbour !== leaderPid) {
+  function reportNeighbourFailure(networkState) {
+    if (networkState.neighbour !== topology.leader) {
       Utility.log('*** NODE FAIL *** -- Neighbour ' +
-                  checkState.neighbour +
+                  networkState.neighbour +
                   ' has failed');
 
-      if (leaderPid !== myPid) {
-        sendToPid(leaderPid, ROOM, NODE_FAIL,
-                  { failedPid: checkState.neighbour });
+      if (myPid !== topology.leader) {
+        sendToPid(topology.leader, ROOM, NODE_FAIL,
+          { failedPid: networkState.neighbour },
+          function () {
+            sendToAll(ROOM, LEADER_DOWN);
+            topology = generateTopology();
+          });
       }
       // Leader isn't in its own pidMap so can't message itself
       else {
-        handleNodeFailure(myPid, checkState.neighbour, topology);
+        handleNodeFailure(myPid, networkState.neighbour, topology);
       }
     }
     else {
       // TODO: Have nodes speak to each other to work out how
       // to replace the leader
       Utility.log("The leader has failed!");
-      webrtc.sendDirectlyToAll(ROOM, LEADER_DOWN);
+      sendToAll(ROOM, LEADER_DOWN);
       topology = generateTopology();
     }
   }
@@ -605,7 +619,7 @@ var Network = (function () {
   // 1        4  =>  1        X  =>  1      |
   //  \      /        \      /        \     |
   //   6 -- 5          6 -- 5          6 -- 5
-  function handleNodeFailure(reporterPid, failedPid, topology) {
+  function handleNodeFailure(reporterPid, failedPid, networkState) {
     Utility.log('*** FAILED NODE ***\n' +
           failedPid + ' has been reported as failed to the me');
 
@@ -619,8 +633,8 @@ var Network = (function () {
 
     broadcastTopology(topology);
     render(topology);
-    CheckState.failed[failedPid] = true;
-    webrtc.sendDirectlyToAll(ROOM, NODE_REMOVE, { failedPid: failedPid });
+    networkState.failed[failedPid] = true;
+    sendToAll(ROOM, NODE_REMOVE, { failedPid: failedPid });
   }
 
   return {
