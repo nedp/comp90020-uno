@@ -50,11 +50,11 @@ var Network = (function () {
 
   // Interval between checks on our neighbour;
   // smaller = faster detection of node failure but more messages.
-  var CHECK_INTERVAL = 2000;
+  var CHECK_INTERVAL = 1000;
 
   // Delay between sending a message and timing out the acknowledgement.
   // smaller = faster detection of node failure but more false positives.
-  var CHECK_DELAY = 5000;
+  var CHECK_DELAY = 2000;
 
   var CheckState = {
     neighbour:      null,
@@ -240,7 +240,7 @@ var Network = (function () {
   }
 
   function becomeLeader() {
-    topology = generateTopology();
+    onTopologyUpdate(generateTopology());
     broadcastTopology(topology);
   }
 
@@ -339,7 +339,7 @@ var Network = (function () {
           break;
 
         case NODE_FAIL:
-          if(myPid === topology.leader) {
+          if(topology && myPid === topology.leader) {
             handleNodeFailure(peer.id, data.payload.failedPid, topology);
           }
           break;
@@ -462,8 +462,7 @@ var Network = (function () {
 
     // 2. Remember and broadcast the new topology if it is different.
     if (!topologiesAreEqual(newTopology, topology)) {
-      topology = newTopology;
-      render(newTopology);
+      onTopologyUpdate(newTopology);
       broadcastTopology(newTopology);
     }
   }
@@ -622,9 +621,10 @@ var Network = (function () {
 
   // Checks the currently allocated neighbour.
   function checkNeighbour() {
+    if (CheckState.neighbourCheck === null) return;
+    sendToPid(CheckState.neighbour, ROOM, CHECK);
     CheckState.neighbourCheck = null;
     Utility.log('Checking neighbour: ', CheckState.neighbour);
-    sendToPid(CheckState.neighbour, ROOM, CHECK);
   }
 
   // Register a neighbour's response
@@ -645,7 +645,7 @@ var Network = (function () {
     // and there's not a pending check.
     if (pid === CheckState.neighbour && CheckState.neighbourCheck === null) {
       CheckState.neighbourCheck =
-        setTimeout(function () { checkNeighbour() }, CHECK_DELAY);
+        setTimeout(function () { checkNeighbour() }, CHECK_INTERVAL);
     }
   }
 
