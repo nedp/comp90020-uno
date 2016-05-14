@@ -313,5 +313,10 @@ var Application = (function () {
     // Uno/gotcha
     onUnoMessage: onUnoMessage,
     onGotchaMessage: onGotchaMessage,
+
+    // Turn number for retransmission of turn numbers
+    get turnsTaken() {
+      return GameState.turnsTaken;
+    },
   };
 })();

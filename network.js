@@ -576,7 +576,7 @@ var Network = (function () {
     sendToPid(targetPid, ROOM, CHECK, null, function () {
       clearTimeout(timeout);
       newState.turnOwner = myPid;
-      newState.turnsTaken++;
+      newState.turnsTaken = Application.turnsTaken;
       endTurn(turnType, newState);
       reportNodeFailure(NetworkState, targetPid);
     });
