@@ -234,6 +234,10 @@ var Network = (function () {
       becomeLeader();
 
       Application.onFirstTurn(myPid);
+    } else {
+      if (!topology) {
+        topology = generateTopology();
+      }
     }
 
     onJoin();
@@ -309,7 +313,8 @@ var Network = (function () {
 
           // in case we missed the initialise but joined the room since
           if (!isInitialised) {
-            initialise();
+            isInitialised = true;
+            onJoin();
             Application.initialise();
           }
           break;
