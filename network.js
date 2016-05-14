@@ -382,7 +382,7 @@ var Network = (function () {
           // Similar to the state message, but mark us as uninitialised so we
           // can start the next game
           Application.onUpdate(data.payload);
-          Application.onSomoneWon(peer.id);
+          Application.onSomeoneWon(peer.id);
 
           // mark us as uninitialised
           resetGame();
