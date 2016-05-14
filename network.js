@@ -652,11 +652,14 @@ var Network = (function () {
     // and there's not a pending check.
     // Only the first call to checkNeighbour counts, each cycle.
     if (pid === CheckState.neighbour && CheckState.neighbourCheck === null) {
-      CheckState.neighbourCheck =
+      var newCheck =
         setTimeout(function () {
-          checkNeighbour();
-          CheckState.neighbourCheck = null;
+          if (CheckState.neighbourCheck === newCheck) {
+            checkNeighbour();
+            CheckState.neighbourCheck = null;
+          }
         }, CHECK_INTERVAL);
+      CheckState.neighbourCheck = newCheck;
     }
   }
 
