@@ -239,8 +239,10 @@ var Network = (function () {
     onJoin();
   }
 
+  // When we become the leader we must recalculate the topology.
   function becomeLeader() {
-    onTopologyUpdate(generateTopology());
+    var newTopology = generateTopology();
+    onTopologyUpdate(newTopology);
     broadcastTopology(topology);
   }
 
@@ -500,9 +502,11 @@ var Network = (function () {
     // 2. Start checking my new neighbour.
     Utility.assert(topology[FORWARD][myPid] !== undefined,
            'I have no neighbour!');
-
     CheckState.neighbour = topology[FORWARD][myPid];
     checkNeighbour();
+
+    // Bypass the one-check-at-a-time restriction for the first check.
+    CheckState.neighbourCheck = null;
 
     Utility.log('The leader is now ' + topology.leader);
 
@@ -621,9 +625,7 @@ var Network = (function () {
 
   // Checks the currently allocated neighbour.
   function checkNeighbour() {
-    if (CheckState.neighbourCheck === null) return;
     sendToPid(CheckState.neighbour, ROOM, CHECK);
-    CheckState.neighbourCheck = null;
     Utility.log('Checking neighbour: ', CheckState.neighbour);
   }
 
@@ -643,9 +645,13 @@ var Network = (function () {
 
     // Schedule the next check if the other process is my neighbour
     // and there's not a pending check.
+    // Only the first call to checkNeighbour counts, each cycle.
     if (pid === CheckState.neighbour && CheckState.neighbourCheck === null) {
       CheckState.neighbourCheck =
-        setTimeout(function () { checkNeighbour() }, CHECK_INTERVAL);
+        setTimeout(function () {
+          checkNeighbour();
+          CheckState.neighbourCheck = null;
+        }, CHECK_INTERVAL);
     }
   }
 
