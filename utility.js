@@ -3,7 +3,7 @@ var Utility = (function () {
   'use strict';
 
   function assert(predicate, message) {
-    if (!predicate) {
+    if (predicate === false) {
       throw 'assertion failed: ' + message;
     }
   }
