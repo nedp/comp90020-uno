@@ -171,8 +171,6 @@ var Network = (function () {
     var peer = pidMap[targetPid];
     Utility.assert(peer !== undefined, 'target missing');
 
-    Utility.log('README!!!: ' + JSON.stringify(NetworkState));
-
     var seq = NetworkState.seqNum;
 
     peer.sendDirectly(room, type, { msg: message, seq: seq });
@@ -352,8 +350,8 @@ var Network = (function () {
 
         case NODE_FAIL:
           Utility.logMessage(peer, 'NODE_FAIL', msg);
-          if(myPid === leader) {
-            handleNodeFailure(peer.id, msg.payload.failedPid, topology);
+          if(myPid === topology.leader) {
+            handleNodeFailure(peer.id, msg.failedPid, NetworkState);
           }
           break;
 
@@ -568,28 +566,31 @@ var Network = (function () {
   }
 
   function checkNextTurn(targetPid, turnType, newState, timeout) {
-    if (turnOwner !== targetPid) {
+    if (newState.turnOwner !== targetPid) {
       if (timeout !== undefined) {
         clearTimeout(timeout);
       }
       return;
     }
 
-    sendToPid(targetPid, ROOM, CHECK, function () {
+    sendToPid(targetPid, ROOM, CHECK, null, function () {
+      clearTimeout(timeout);
       newState.turnOwner = myPid;
-      endTurn(turnType, newState, targetPid);
+      newState.turnsTaken++;
+      endTurn(turnType, newState);
+      reportNodeFailure(NetworkState, targetPid);
     });
 
     var checkTimeout = setTimeout(function () {
       checkNextTurn(targetPid, turnType, newState, checkTimeout);
-    }, MAX_CHECK_INTERVAL*2);
+    }, MAX_CHECK_INTERVAL);
   }
 
   // Ping a neighbour and expect a response
   function checkNeighbour(networkState, neighbourPid) {
     // Set up the next receive
     sendToPid(neighbourPid, ROOM, CHECK, null, function () {
-      reportNeighbourFailure(networkState);
+      reportNodeFailure(networkState, neighbourPid);
     });
 
     // Set up next response check/ping
@@ -599,15 +600,18 @@ var Network = (function () {
   }
 
   // Tell the leader our neighbour has failed
-  function reportNeighbourFailure(networkState) {
-    if (networkState.neighbour !== topology.leader) {
+  function reportNodeFailure(networkState, pid) {
+    if (!(pid in topology[direction])) {
+      return;
+    }
+
+    if (pid !== topology.leader) {
       Utility.log('*** NODE FAIL *** -- Neighbour ' +
-                  networkState.neighbour +
-                  ' has failed');
+                  pid + ' has failed');
 
       if (myPid !== topology.leader) {
         sendToPid(topology.leader, ROOM, NODE_FAIL,
-          { failedPid: networkState.neighbour },
+          { failedPid: pid },
           function () {
             sendToAll(ROOM, LEADER_DOWN);
             topology = generateTopology();
@@ -615,7 +619,7 @@ var Network = (function () {
       }
       // Leader isn't in its own pidMap so can't message itself
       else {
-        handleNodeFailure(myPid, networkState.neighbour, topology);
+        handleNodeFailure(myPid, pid, networkState);
       }
     }
     else {
