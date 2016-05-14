@@ -7,6 +7,9 @@
 .turnButton {
   margin-left: 100px;
 }
+.unoButton {
+  margin-left: 100px;
+}
 .isNotMyTurn {
   opacity: 0.5;
 }

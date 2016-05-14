@@ -1,5 +1,5 @@
 var GameView = React.createClass({
-  displayName: 'GameView',
+  displayName: "GameView",
 
   // initial state of the view
   getInitialState: function () {
@@ -11,44 +11,63 @@ var GameView = React.createClass({
     var cntPlayers = 0;
     if (this.state.players) {
       this.state.players.forEach(function (value) {
+        // what is their card count
         var cardCount = null;
         if (this.state.cardCounts) {
           cardCount = this.state.cardCounts[value];
         }
+        // whether or not to show if they said uno (they are safe)
+        var showSafe = false;
+        if (cardCount && cardCount === 1 && this.state.unoSet && !this.state.unoSet[value] || this.state.unoSafe && this.state.unoSafe[value]) {
+          showSafe = true;
+        }
+        // have we readied up
         var isReady = this.state.ready && this.state.ready[value];
         players.push(React.createElement(PlayerView, { key: value,
           takingTurn: this.state.turnOwner === value,
           playerId: value,
           winner: value === this.state.winner,
           cardCount: cardCount,
+          showSafe: showSafe,
           isReady: isReady,
           idx: ++cntPlayers }));
       }.bind(this));
     }
 
-    var ReadyUpButton = '';
+    var ReadyUpButton = null;
     if (!this.state.isInitialised && this.state.players && this.state.players.length > 0) {
       ReadyUpButton = React.createElement(
-        'div',
+        "div",
         { onClick: Application.readyUp,
-          className: 'btn btn-default' },
-        'Ready!'
+          className: "btn btn-default" },
+        "Ready!"
       );
     } else if (!this.state.isInitialised) {
       ReadyUpButton = React.createElement(
-        'div',
+        "div",
         null,
-        'Finding peers... Share the URL!'
+        "Finding peers... Share the URL!"
       );
     }
 
-    var DrawButton = '';
+    var DrawButton = null;
+    var UnoButton = null;
     if (this.state.isInitialised && this.state.isMyTurn && !this.state.requestSpecial) {
       DrawButton = React.createElement(
-        'div',
+        "div",
         { onClick: Application.pickupCard,
-          className: 'btn btn-primary turnButton' },
-        'Pick up card'
+          className: "btn btn-primary turnButton" },
+        "Pick up card"
+      );
+    }
+
+    // only draw the uno button if we have 1 card right now
+    if (this.state.myHand.length === 1 && this.state.timeTakenToUno === null) {
+      UnoButton = React.createElement(
+        "div",
+        { onClick: Application.onUnoButton,
+          className: "btn btn-success unoButton" },
+        "Uno"
       );
     }
 
@@ -65,10 +84,10 @@ var GameView = React.createClass({
       });
       // special button for cancelling the suite selection
       cancelSuiteSelection = React.createElement(
-        'div',
+        "div",
         { onClick: Application.cancelSuitSelection,
-          className: 'btn btn-default' },
-        'Cancel Selection'
+          className: "btn btn-default" },
+        "Cancel Selection"
       );
     } else {
       // the cards in my hand
@@ -84,41 +103,42 @@ var GameView = React.createClass({
     }
 
     return React.createElement(
-      'div',
+      "div",
       null,
       React.createElement(
-        'h4',
+        "h4",
         null,
-        'Players'
+        "Players"
       ),
       React.createElement(
-        'table',
+        "table",
         null,
         React.createElement(
-          'tbody',
+          "tbody",
           null,
           players
         )
       ),
       ReadyUpButton,
       React.createElement(
-        'h4',
+        "h4",
         null,
-        'Top Card'
+        "Top Card"
       ),
       React.createElement(
-        'div',
-        { className: 'topCard' },
+        "div",
+        { className: "topCard" },
         topCard,
-        DrawButton
+        DrawButton,
+        UnoButton
       ),
       React.createElement(
-        'h4',
+        "h4",
         null,
-        'Current Hand'
+        "Current Hand"
       ),
       React.createElement(
-        'div',
+        "div",
         { className: 'myHand' + (this.state.requestSpecial ? ' specialPicker' : '') + (this.state.isMyTurn ? '  isMyTurn' : ' isNotMyTurn') },
         myHandCards,
         cancelSuiteSelection
@@ -128,86 +148,106 @@ var GameView = React.createClass({
 });
 
 var CardView = React.createClass({
-  displayName: 'CardView',
+  displayName: "CardView",
 
   render: function () {
-    return React.createElement('img', { src: 'cards/' + this.props.card.toString() + '.svg',
+    return React.createElement("img", { src: 'cards/' + this.props.card.toString() + '.svg',
       onClick: Application.playCard.bind(undefined, this.props.card),
-      className: 'card' });
+      className: "card" });
   }
 });
 
 var PlayerView = React.createClass({
-  displayName: 'PlayerView',
+  displayName: "PlayerView",
 
   render: function () {
     var turnClass = this.props.takingTurn ? 'takingTurn' : 'notTakingTurn';
 
     var cardCountLabel = null;
     var readyLabel = null;
-    if (this.props.cardCount) {
+    var gotchaLabel = null;
+    var safeLabel = null;
+    if (this.props.cardCount !== null && this.props.cardCount >= 0) {
       cardCountLabel = React.createElement(
-        'span',
-        { className: 'label label-primary' },
-        this.props.cardCount,
-        ' CARDS'
+        "span",
+        { className: "label label-primary cardCount" },
+        this.props.cardCount
       );
+      // don't show gotcha labels when someone has won
+      if (!this.props.winner) {
+        gotchaLabel = React.createElement(
+          "span",
+          { className: "btn btn-sm btn-primary",
+            onClick: Application.onGotchaButton.bind(null, this.props.playerId) },
+          "Gotcha!"
+        );
+      }
+      // show the safe label so we know they have said uno
+      if (this.props.showSafe) {
+        safeLabel = React.createElement(
+          "span",
+          { className: "label label-success" },
+          "SAFE"
+        );
+      }
     } else if (this.props.isReady) {
       readyLabel = React.createElement(
-        'span',
-        { className: 'label label-primary' },
-        'READY'
+        "span",
+        { className: "label label-primary" },
+        "READY"
       );
     }
 
     var winnerLabel = null;
     if (this.props.winner) {
       winnerLabel = React.createElement(
-        'span',
-        { className: 'label label-success' },
-        'WINNER!'
+        "span",
+        { className: "label label-success" },
+        "WINNER!"
       );
     }
 
     var meLabel = null;
     if (this.props.playerId === Network.myId) {
       meLabel = React.createElement(
-        'span',
-        { className: 'label label-info' },
-        'ME'
+        "span",
+        { className: "label label-info" },
+        "ME"
       );
     }
 
     return React.createElement(
-      'tr',
+      "tr",
       { className: 'player ' + turnClass },
       React.createElement(
-        'td',
+        "td",
         null,
         meLabel
       ),
       React.createElement(
-        'td',
+        "td",
         null,
-        'Player ',
+        "Player ",
         this.props.idx
       ),
       React.createElement(
-        'td',
+        "td",
         null,
         readyLabel,
-        cardCountLabel
+        cardCountLabel,
+        safeLabel
       ),
       React.createElement(
-        'td',
+        "td",
         null,
-        '(',
+        "(",
         this.props.playerId,
-        ')'
+        ")"
       ),
       React.createElement(
-        'td',
+        "td",
         null,
+        gotchaLabel,
         winnerLabel
       )
     );

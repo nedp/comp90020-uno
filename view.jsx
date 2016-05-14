@@ -9,22 +9,32 @@ var GameView = React.createClass({
     var cntPlayers = 0;
     if (this.state.players) {
       this.state.players.forEach(function (value) {
+        // what is their card count
         var cardCount = null;
         if (this.state.cardCounts) {
           cardCount = this.state.cardCounts[value];
         }
+        // whether or not to show if they said uno (they are safe)
+        var showSafe = false;
+        if (cardCount && cardCount === 1 &&
+            (this.state.unoSet && !this.state.unoSet[value]) ||
+            (this.state.unoSafe && this.state.unoSafe[value])) {
+          showSafe = true;
+        }
+        // have we readied up
         var isReady = this.state.ready && this.state.ready[value];
         players.push(<PlayerView key={value}
                                  takingTurn={this.state.turnOwner === value}
                                  playerId={value}
                                  winner={value === this.state.winner}
                                  cardCount={cardCount}
+                                 showSafe={showSafe}
                                  isReady={isReady}
                                  idx={++cntPlayers}></PlayerView>);
       }.bind(this));
     }
 
-    var ReadyUpButton = '';
+    var ReadyUpButton = null;
     if (!this.state.isInitialised &&
         this.state.players &&
         this.state.players.length > 0) {
@@ -36,7 +46,8 @@ var GameView = React.createClass({
       ReadyUpButton = <div>Finding peers... Share the URL!</div>;
     }
 
-    var DrawButton = '';
+    var DrawButton = null;
+    var UnoButton = null;
     if (this.state.isInitialised &&
         this.state.isMyTurn &&
         !this.state.requestSpecial) {
@@ -44,6 +55,15 @@ var GameView = React.createClass({
                            className="btn btn-primary turnButton">
                         Pick up card
                       </div>;
+    }
+
+    // only draw the uno button if we have 1 card right now
+    if (this.state.myHand.length === 1 &&
+        this.state.timeTakenToUno === null) {
+      UnoButton = <div onClick={Application.onUnoButton}
+        className="btn btn-success unoButton">
+        Uno
+      </div>;
     }
 
     var cancelSuiteSelection = null;
@@ -85,6 +105,7 @@ var GameView = React.createClass({
              <div className='topCard'>
                {topCard}
                { DrawButton }
+               { UnoButton }
              </div>
              <h4>Current Hand</h4>
              <div className={'myHand' +
@@ -112,10 +133,23 @@ var PlayerView = React.createClass({
 
     var cardCountLabel = null;
     var readyLabel = null;
-    if (this.props.cardCount) {
-      cardCountLabel = <span className="label label-primary">
-                         {this.props.cardCount} CARDS
+    var gotchaLabel = null;
+    var safeLabel = null;
+    if (this.props.cardCount !== null && this.props.cardCount >= 0) {
+      cardCountLabel = <span className="label label-primary cardCount">
+                         {this.props.cardCount}
                        </span>;
+      // don't show gotcha labels when someone has won
+      if (!this.props.winner) {
+        gotchaLabel = <span className="btn btn-sm btn-primary"
+                            onClick={Application.onGotchaButton.bind(null, this.props.playerId)}>
+                        Gotcha!
+                      </span>;
+      }
+      // show the safe label so we know they have said uno
+      if (this.props.showSafe) {
+        safeLabel = <span className="label label-success">SAFE</span>;
+      }
     } else if (this.props.isReady) {
       readyLabel = <span className="label label-primary">
                   READY
@@ -136,13 +170,12 @@ var PlayerView = React.createClass({
                 </span>;
     }
 
-
     return <tr className={'player ' + turnClass}>
                <td>{meLabel}</td>
                <td>Player {this.props.idx}</td>
-               <td>{readyLabel}{cardCountLabel}</td>
+               <td>{readyLabel}{cardCountLabel}{safeLabel}</td>
                <td>({this.props.playerId})</td>
-               <td>{winnerLabel}</td>
+               <td>{ gotchaLabel }{winnerLabel}</td>
              </tr>;
   },
 });

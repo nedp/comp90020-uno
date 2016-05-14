@@ -15,7 +15,16 @@ var Application = (function () {
     isInitialised: false,
     cardCounts: {},
     winner: null,
+    // remember who is in uno / safe from gotcha
+    unoSet: {},
+    unoSafe: {},
+    // only need to keep my time taken to press uno
+    timeTakenToUno: null,
   };
+
+  // time between when someone calls uno for themselves and we have to pick up
+  // 4 cards if we accidentally call it on them after that
+  var SAFE_UNO_SURROUNDING = 5000; // 5 seconds
 
   // TODO convert INITIALISE related logic into something better.
   function initialise() {
@@ -88,6 +97,16 @@ var Application = (function () {
   // update the number of cards in our peers hand
   function onUpdateCardCount(peerId, numCards) {
     LocalState.cardCounts[peerId] = numCards;
+
+    // if they just hit uno
+    if (numCards === 1) {
+      // update the time since we saw them go into uno-mode (in milliseconds)
+      LocalState.unoSet[peerId] = +new Date();
+    } else if (LocalState.unoSet[peerId]) {
+      // they shouldn't be in the uno set anymore, unmark them
+      delete LocalState.unoSet[peerId];
+      delete LocalState.unoSafe[peerId];
+    }
 
     updateView();
   }
@@ -177,8 +196,17 @@ var Application = (function () {
     // update my local state
     LocalState.cardCounts[Network.myId] = count;
 
+    // checks for local card in the uno set
+    if (count === 1) {
+      LocalState.unoSet[Network.myId] = +new Date();
+    } else if (LocalState.unoSet[Network.myId]) {
+      // clear the uno variables for myself in case anyone comes calling
+      // I won't be susceptible to gotchas anymore
+      delete LocalState.unoSet[Network.myId];
+      LocalState.timeTakenToUno = null;
+    }
+
     // update the view
-    // this needs to be done quickly to give me the most time to press uno
     updateView();
 
     // update the network with my new number of cards
@@ -189,19 +217,15 @@ var Application = (function () {
   function finishTurn(turnType, nCardsToDraw) {
     console.log('finishTurn');
 
-    // 1. Take the turn, by counting how many turns have occured.
-    // TODO replace with actual turn taking logic using cards, etc.
+    // 1. Take the turn, counting how many turns have occured.
     GameState.turnsTaken++;
     Utility.log("I'm taking my turn now (" + GameState.turnsTaken + ')');
-
-    // TODO 2. If I have only one card left, add me to the Uno list.
-    // TODO 3. If I have more than one card left, remove me from the Uno list.
 
     // Update my local card count and tell everyon else
     updateMyCardCount();
 
     // winning condition
-    if (LocalState.myHand.length == 0) {
+    if (LocalState.myHand.length === 0) {
       // Last card has been played, let everyone know I've won
       Network.broadcastWin(GameState);
       LocalState.winner = Network.myId;
@@ -316,34 +340,65 @@ var Application = (function () {
 
   // Called when the player calls Uno via the UI.
   function onUnoButton() {
-    // TODO
-    // 1. Broadcast the uno message.
+    LocalState.timeTakenToUno = +new Date() - LocalState.unoSet[Network.myId];
+    Network.broadcastUno(LocalState.timeTakenToUno);
+
+    // remove the uno button
+    updateView();
   }
 
   // Called when the player calls Gotcha via the UI.
-  function onGotchaButton() {
-    // TODO
-    // 1. Broadcast the gotcha message.
+  function onGotchaButton(peerId) {
+    if (LocalState.unoSet[peerId]) {
+      Network.sendGotcha(peerId, +new Date() - LocalState.unoSet[peerId]);
+    } else {
+      // draw 4 cards for calling gotcha at the wrong time
+      draw(4);
+    }
   }
 
   // Called when another process sends us an Uno message.
-  function onUnoMessage() {
-    // TODO
-    // 1. Disregard the message if it's not my turn,
-    //    since I don't own the state.
-    // 2. Remove the player who called Uno from the Uno list.
-    // 3. Broadcast the new state.
+  function onUnoMessage(peer, timeTaken) {
+    // bookmark what time they received their 1 card at
+    var unoTime = LocalState.unoSet[peer];
+
+    // there may be a bit of time before we can call uno on them
+    // but even if they called it first, we want to wait a safe period before
+    // making us pick up 4 cards for incorrectly calling them out
+    if (LocalState.unoSet[peer]) {
+      // how long has elapsed compared to the uno guy,
+      // we may still have extra time before we are at his timing
+      // if so take it into account in the timeout
+      var timeDiff = Math.abs(+new Date() - LocalState.unoSet[peer] - timeTaken);
+      // only remove them from the LocalState.unoSet in a certain amount of time
+      setTimeout(function () {
+        // make sure if we are wiping it, it's for the right uno
+        if (LocalState.unoSet[peer] && LocalState.unoSet[peer] === unoTime) {
+          delete LocalState.unoSet[peer];
+          delete LocalState.unoSafe[peer];
+        }
+        updateView();
+      }, SAFE_UNO_SURROUNDING + timeDiff);
+      // update the view to show they pressed uno
+      // just until the above function clears so we don't see a lag
+      // on them pressing uno
+      LocalState.unoSafe[peer] = true;
+      updateView();
+    }
   }
 
   // Called when another process sends us a Gotcha message.
-  function onGotchaMessage() {
-    // TODO
-    // 1. Disregard the message if it's not my turn,
-    //    since I don't own the state.
-    // 2. Add seven cards to the hand of all players on the Uno list.
-    //    Tell the corresponding processes to choose seven cards to
-    //    add to their local hands.
-    // 3. Broadcast the new state.
+  function onGotchaMessage(peerId, timing) {
+    // if I haven't called it in time or if they called it quicker than me
+    if (LocalState.unoSet[Network.myId] && LocalState.timeTakenToUno === null ||
+        LocalState.timeTakenToUno !== null && timing < LocalState.timeTakenToUno) {
+      // they called me out in time, draw 4 cards
+      draw(4);
+    }
+    // don't do anything otherwise, either they didn't beat me to the punch
+    // time-wise, or the message was sent when I was on uno for them
+    // but am no longer on uno now (i.e. they saw me on uno so they shouldn't
+    // be penalised but I shouldn't have to draw cards)
   }
 
   return {
