@@ -134,6 +134,10 @@ var Network = (function () {
     readySet = {};
   }
 
+  function renderReady(readySet) {
+    RootComponent.setState({ ready: readySet });
+  }
+
   function render(topology) {
     RootComponent.setState({
       players: topologyPlayers(topology),
@@ -291,12 +295,11 @@ var Network = (function () {
             sendToPid(peer.id, ROOM, PREINITIALISED, topology);
           } else {
             readySet[peer.id] = true;
-            console.log(readySet);
+            renderReady(readySet);
 
             // TODO don't cheat
             var peers = webrtc.getPeers();
-            var pids =
-              [myPid].concat(peers.map(function(p) { return p.id; }));
+            var pids = [myPid].concat(peers.map(function(p) { return p.id; }));
             var mayInitialise = pids.every(function(pid) {
               return readySet[pid];
             });
@@ -395,6 +398,7 @@ var Network = (function () {
   // Called when the player readies up.
   function readyUp() {
     readySet[myPid] = true;
+    renderReady(readySet);
     // TODO convert INITIALISE related logic into something better.
     var peers = webrtc.getPeers();
     if (peers.length !== 0) {

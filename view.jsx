@@ -13,11 +13,13 @@ var GameView = React.createClass({
         if (this.state.cardCounts) {
           cardCount = this.state.cardCounts[value];
         }
+        var isReady = this.state.ready && this.state.ready[value];
         players.push(<PlayerView key={value}
                                  takingTurn={this.state.turnOwner === value}
                                  playerId={value}
                                  winner={value === this.state.winner}
                                  cardCount={cardCount}
+                                 isReady={isReady}
                                  idx={++cntPlayers}></PlayerView>);
       }.bind(this));
     }
@@ -75,9 +77,9 @@ var GameView = React.createClass({
 
     return <div>
              <h4>Players</h4>
-             <div>
+             <table><tbody>
                {players}
-             </div>
+             </tbody></table>
              { ReadyUpButton }
              <h4>Top Card</h4>
              <div className='topCard'>
@@ -106,30 +108,42 @@ var CardView = React.createClass({
 
 var PlayerView = React.createClass({
   render: function () {
-    var playerClass = this.props.takingTurn ? 'takingTurn' : 'notTakingTurn';
+    var turnClass = this.props.takingTurn ? 'takingTurn' : 'notTakingTurn';
 
     var cardCountLabel = null;
-    if (this.props.cardCount >= 0) {
+    var readyLabel = null;
+    if (this.props.cardCount) {
       cardCountLabel = <span className="label label-primary">
-                         {this.props.cardCount}
+                         {this.props.cardCount} CARDS
                        </span>;
+    } else if (this.props.isReady) {
+      readyLabel = <span className="label label-primary">
+                  READY
+                </span>;
     }
 
     var winnerLabel = null;
     if (this.props.winner) {
       winnerLabel = <span className="label label-success">
-                       WINNER!
-                     </span>;
+                      WINNER!
+                    </span>;
     }
 
-    return <div>
-             <p className={playerClass}>
-               Player {this.props.idx}
-               { cardCountLabel }
-               ({this.props.playerId})
-               { winnerLabel }
-             </p>
-           </div>;
+    var meLabel = null;
+    if (this.props.playerId === Network.myId) {
+      meLabel = <span className="label label-info">
+                  ME
+                </span>;
+    }
+
+
+    return <tr className={'player ' + turnClass}>
+               <td>{meLabel}</td>
+               <td>Player {this.props.idx}</td>
+               <td>{readyLabel}{cardCountLabel}</td>
+               <td>({this.props.playerId})</td>
+               <td>{winnerLabel}</td>
+             </tr>;
   },
 });
 

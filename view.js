@@ -15,11 +15,13 @@ var GameView = React.createClass({
         if (this.state.cardCounts) {
           cardCount = this.state.cardCounts[value];
         }
+        var isReady = this.state.ready && this.state.ready[value];
         players.push(React.createElement(PlayerView, { key: value,
           takingTurn: this.state.turnOwner === value,
           playerId: value,
           winner: value === this.state.winner,
           cardCount: cardCount,
+          isReady: isReady,
           idx: ++cntPlayers }));
       }.bind(this));
     }
@@ -90,9 +92,13 @@ var GameView = React.createClass({
         'Players'
       ),
       React.createElement(
-        'div',
+        'table',
         null,
-        players
+        React.createElement(
+          'tbody',
+          null,
+          players
+        )
       ),
       ReadyUpButton,
       React.createElement(
@@ -135,14 +141,22 @@ var PlayerView = React.createClass({
   displayName: 'PlayerView',
 
   render: function () {
-    var playerClass = this.props.takingTurn ? 'takingTurn' : 'notTakingTurn';
+    var turnClass = this.props.takingTurn ? 'takingTurn' : 'notTakingTurn';
 
     var cardCountLabel = null;
-    if (this.props.cardCount >= 0) {
+    var readyLabel = null;
+    if (this.props.cardCount) {
       cardCountLabel = React.createElement(
         'span',
         { className: 'label label-primary' },
-        this.props.cardCount
+        this.props.cardCount,
+        ' CARDS'
+      );
+    } else if (this.props.isReady) {
+      readyLabel = React.createElement(
+        'span',
+        { className: 'label label-primary' },
+        'READY'
       );
     }
 
@@ -155,18 +169,45 @@ var PlayerView = React.createClass({
       );
     }
 
+    var meLabel = null;
+    if (this.props.playerId === Network.myId) {
+      meLabel = React.createElement(
+        'span',
+        { className: 'label label-info' },
+        'ME'
+      );
+    }
+
     return React.createElement(
-      'div',
-      null,
+      'tr',
+      { className: 'player ' + turnClass },
       React.createElement(
-        'p',
-        { className: playerClass },
+        'td',
+        null,
+        meLabel
+      ),
+      React.createElement(
+        'td',
+        null,
         'Player ',
-        this.props.idx,
-        cardCountLabel,
+        this.props.idx
+      ),
+      React.createElement(
+        'td',
+        null,
+        readyLabel,
+        cardCountLabel
+      ),
+      React.createElement(
+        'td',
+        null,
         '(',
         this.props.playerId,
-        ')',
+        ')'
+      ),
+      React.createElement(
+        'td',
+        null,
         winnerLabel
       )
     );

@@ -93,7 +93,7 @@ var Application = (function () {
   }
 
   // When someone else wins we need to show this
-  function onSomoneWon(winner) {
+  function onSomeoneWon(winner) {
     // mark the winner of the game
     LocalState.winner = winner;
 
@@ -369,7 +369,7 @@ var Application = (function () {
     initialise: initialise,
     onUpdate: onUpdate,
     onUpdateCardCount: onUpdateCardCount,
-    onSomoneWon: onSomoneWon,
+    onSomeoneWon: onSomeoneWon,
 
     // Turn taking and drawing
     onFirstTurn: onFirstTurn,

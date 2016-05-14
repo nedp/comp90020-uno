@@ -22,3 +22,7 @@
   box-shadow: 0 0 20px #666;
   margin-top: -20px;
 }
+.player td {
+  padding-left: 4px;
+  padding-right: 4px;
+}
