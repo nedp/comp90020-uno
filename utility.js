@@ -4,7 +4,6 @@ var Utility = (function () {
 
   function assert(predicate, message) {
     if (predicate === false) {
-      var x = 0; // TODO
       throw 'assertion failed: ' + message;
     }
   }
