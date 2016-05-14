@@ -48,21 +48,20 @@ var Network = (function () {
   var topology;
   var readySet = {};
 
-  // Upper and lower bounds on neighbour check times
-  var MAX_CHECK_INTERVAL = 10000;
-  var MIN_CHECK_INTERVAL = 2000;
-  // checkInterval = CHECK_FACTOR * lastResponseTime
-  var CHECK_FACTOR       = 3;
+  // Interval between checks on our neighbour;
+  // smaller = faster detection of node failure but more messages.
+  var CHECK_INTERVAL = 2000;
 
-  var CheckState =
-    {
-      neighbour:           null,
-      checkInterval:       MAX_CHECK_INTERVAL,
-      lastPingTime:        null,
-      checkTimeoutHandler: null,
-      failed:              {},
-      responseReceived:    true,
-    };
+  // Delay between sending a message and timing out the acknowledgement.
+  // smaller = faster detection of node failure but more false positives.
+  var CHECK_DELAY = 5000;
+
+  var CheckState = {
+    neighbour:      null,
+    handler:        {},
+    neighbourCheck: null,
+    failed:         {},
+  };
 
   // Returns true if the topologies have the same leader, players,
   // and order of the players in both directions.
@@ -72,8 +71,8 @@ var Network = (function () {
     if (a.leader !== b.leader) return false;
 
     // If the topologies have different players, they're different.
-    var aPlayers = Object.keys(a[FORWARD]).sort();
-    var bPlayers = Object.keys(b[FORWARD]).sort();
+    var aPlayers = topologyPlayers(a).sort();
+    var bPlayers = topologyPlayers(b).sort();
     if (aPlayers.length !== bPlayers.length) return false;
     for (var i in aPlayers) {
       if (aPlayers[i] !== bPlayers[i]) return false;
@@ -82,7 +81,7 @@ var Network = (function () {
     // If the topologies have different ring links, they're different.
     return aPlayers.every(function (p) {
       return (a[FORWARD][p] === b[FORWARD][p]) &&
-        (a[BACKWARD][p] === b[FORWARD][p]);
+        (a[BACKWARD][p] === b[BACKWARD][p]);
     });
   }
 
@@ -137,7 +136,7 @@ var Network = (function () {
 
   function render(topology) {
     RootComponent.setState({
-      players: Object.keys(topology[FORWARD]),
+      players: topologyPlayers(topology),
       leader: topology.leader,
     });
   }
@@ -172,6 +171,9 @@ var Network = (function () {
   webrtc.on('createdPeer', function (peer) {
     pidMap[peer.id] = peer;
 
+    // Add required state for detecting failure of the new peer.
+    CheckState.handler[peer.id] = null;
+
     // Before initialisation there is no leader, so each process
     // should compute and display its own player list.
     if (!isInitialised) {
@@ -179,10 +181,34 @@ var Network = (function () {
     }
   });
 
+  // Broadcast the message to all processes in the topology,
+  // setting up an acknowledgement expectation for each.
+  function broadcast(room, type, message) {
+    Utility.log('Broadcasting ' + type);
+
+    // If we're initialised properly, send to each peer individually.
+    if (isInitialised) {
+      topologyPlayers(topology).forEach(function (pid) {
+        if (pid !== myPid && !CheckState.failed[pid]) {
+          sendToPid(pid, room, type, message);
+        }
+      });
+    } else {
+      // If we haven't established a topology yet, use primitive broadcast
+      // instead.
+      webrtc.sendDirectlyToAll(room, type, message);
+    }
+  }
+
+  // Send the specified message to the specified process.
+  // Sets up a timeout for acknowledgement, unless this message
+  // is itself an acknowledgement (we don't ack acks).
   function sendToPid(targetPid, room, type, message) {
     Utility.log('Sending ' + type + ' to peer ' + targetPid);
     var peer = pidMap[targetPid];
-    Utility.assert(peer !== undefined, 'target missing');
+
+    if (type !== ACKNOWLEDGE) check(targetPid);
+
     peer.sendDirectly(room, type, message);
   }
 
@@ -223,8 +249,6 @@ var Network = (function () {
     Utility.log('My myPid is ' + myPid);
 
     webrtc.joinRoom(ROOM);
-    webrtc.sendDirectlyToAll(ROOM, READY);
-    // TODO Replace dodgy busy wait with something good.
 
     webrtc.on('channelMessage', function (peer, room, data, other) {
       Utility.logMessage(peer, data.type, data.payload);
@@ -237,9 +261,14 @@ var Network = (function () {
 
       // Always acknowledge all non-ACKNOWLEDGE messages from known,
       // non-failed nodes.
-      if (data.type !== ACKNOWLEDGE &&
-          topology && topology[FORWARD][peer.id]) {
+      if (data.type !== ACKNOWLEDGE) {
+        if (topology && topology[FORWARD][peer.id]) {
           sendToPid(peer.id, ROOM, ACKNOWLEDGE);
+        } else {
+          console.log('Sending ACK directly to ' + peer.id +
+              "since my topology isn't initialised");
+          peer.sendDirectly(ROOM, ACKNOWLEDGE);
+        }
       }
 
       switch (data.type) {
@@ -325,18 +354,7 @@ var Network = (function () {
           break;
 
         case ACKNOWLEDGE:
-          // TODO Remove the timeout for detection of the acknowledger
-          // being dead.
-          if (peer.id === CheckState.neighbour) {
-            receiveNeighbourResponse(CheckState);
-          }
-
-          // If the sender has a higher pid than me, then don't win any
-          // current election.
-          if (peer.id > myPid) {
-            clearTimeout(electionHandler);
-            electionHandler = null;
-          }
+          receiveAcknowledgement(peer.id);
           break;
 
         case LEADER:
@@ -373,6 +391,8 @@ var Network = (function () {
     // TODO convert INITIALISE related logic into something better.
     var peers = webrtc.getPeers();
     if (peers.length !== 0) {
+      // Don't use the `broadcast` function because we're still
+      // establishing the initial network.
       webrtc.sendDirectlyToAll(ROOM, READY);
     }
   }
@@ -449,22 +469,24 @@ var Network = (function () {
   }
 
   function broadcastTopology(topology) {
-    webrtc.sendDirectlyToAll(ROOM, TOPOLOGY, topology);
+    broadcast(ROOM, TOPOLOGY, topology);
   }
 
   function broadcastState(newState) {
-    webrtc.sendDirectlyToAll(ROOM, STATE, newState);
+    broadcast(ROOM, STATE, newState);
   }
 
   function broadcastCardCount(myCardCount) {
-    webrtc.sendDirectlyToAll(ROOM, CARD_COUNT, myCardCount);
+    broadcast(ROOM, CARD_COUNT, myCardCount);
   }
 
   function broadcastWin(GameState) {
     // Reset the network variables for a new game
     resetGame();
 
-    // update everyone else
+    // Update everyone else.
+    // Don't use the `broadcast` function since we're restarting
+    // the system anywhere.
     webrtc.sendDirectlyToAll(ROOM, WIN, GameState);
   }
 
@@ -476,14 +498,16 @@ var Network = (function () {
 
     Utility.logTopology(topology, [FORWARD, BACKWARD]);
 
+    // 2. Start checking my new neighbour.
     Utility.assert(topology[FORWARD][myPid] !== undefined,
            'I have no neighbour!');
 
-    beginNeighbourChecking(CheckState, topology[FORWARD][myPid]);
+    CheckState.neighbour = topology[FORWARD][myPid];
+    checkNeighbour();
 
     Utility.log('The leader is now ' + topology.leader);
 
-    // 2. Update the state of the view by adding on the list of
+    // 3. Update the state of the view by adding on the list of
     // players from the topology
     render(topology);
   }
@@ -584,65 +608,62 @@ var Network = (function () {
   //
   // Maybe handle it with a decorator around SimpleWebRTC?
 
-  // Start the checking after being given a topology
-  function beginNeighbourChecking(checkState, newNeighbour) {
-    if (checkState.checkTimeoutHandler !== null) {
-      clearTimeout(checkState.checkTimeoutHandler);
-    }
-    checkState.neighbour = newNeighbour;
-    checkState.responseReceived = true;
-    checkNeighbour(checkState);
+  // Sets up a check for whether the process with the specified pid
+  // is alive.
+  function check(pid) {
+    // Set up the timeout for a response.
+    var newHandler = setTimeout(function () {
+      if (newHandler === CheckState.handler[pid]) {
+        reportFailure(topology.leader, pid);
+      }
+    }, CHECK_DELAY);
+    CheckState.handler[pid] = newHandler;
   }
 
-  // Ping a neighbour and expect a response
-  function checkNeighbour(checkState) {
-    // Report node if they haven't responded since last ping
-    if (!checkState.responseReceived) {
-      reportNeighbourFailure(checkState, topology.leader);
-      return;
-    }
-
-    // Set up the next receive
-    checkState.responseReceived = false;
-    checkState.lastPingTime = new Date();
-    sendToPid(checkState.neighbour, ROOM, CHECK);
-
-    // Set up next response check/ping
-    checkState.checkTimeoutHandler = setTimeout(function () {
-      checkNeighbour(checkState, topology.leader);
-    }, checkState.checkInterval);
+  // Checks the currently allocated neighbour.
+  function checkNeighbour() {
+    CheckState.neighbourCheck = null;
+    Utility.log('Checking neighbour: ', CheckState.neighbour);
+    sendToPid(CheckState.neighbour, ROOM, CHECK);
   }
 
   // Register a neighbour's response
-  function receiveNeighbourResponse(checkState) {
-    checkState.responseReceived = true;
+  function receiveAcknowledgement(pid) {
+    // Remove the timeout for detection of the acknowledger
+    // being dead.
+    clearTimeout(CheckState.handler[pid]);
+    CheckState.handler[pid] = null;
 
-    var newInterval = CHECK_FACTOR * (new Date() - checkState.lastPingTime);
-    if (newInterval > MAX_CHECK_INTERVAL) {
-      newInterval = MAX_CHECK_INTERVAL;
+    // If the sender has a higher pid than me, then don't win any
+    // current election.
+    if (pid > myPid) {
+      clearTimeout(electionHandler);
+      electionHandler = null;
     }
-    else if (newInterval < MIN_CHECK_INTERVAL) {
-      newInterval = MIN_CHECK_INTERVAL;
+
+    // Schedule the next check if the other process is my neighbour
+    // and there's not a pending check.
+    if (pid === CheckState.neighbour && CheckState.neighbourCheck === null) {
+      CheckState.neighbourCheck =
+        setTimeout(function () { checkNeighbour() }, CHECK_DELAY);
     }
-    checkState.checkInterval = newInterval;
   }
 
-  // Tell the leader our neighbour has failed
-  function reportNeighbourFailure(checkState, leaderPid) {
-    Utility.log('*** NODE FAIL *** -- Neighbour ' +
-        checkState.neighbour + ' has failed');
+  // Informs the appropriate processes that a process has died.
+  function reportFailure(leaderPid, failedPid) {
+    Utility.log('*** NODE FAIL *** -- ' + failedPid + ' has failed');
 
     // The leader is authorised to handle node failures directly.
     if (leaderPid === myPid) {
-      handleNodeFailure(myPid, checkState.neighbour, topology);
+      handleNodeFailure(failedPid, topology);
       return;
     }
 
     // If the leader died, let everyone know they're dead,
     // and elect a new one.
-    if (checkState.neighbour === leaderPid) {
+    if (failedPid === leaderPid) {
       Utility.log("The leader has failed!");
-      handleNodeFailure(checkState.neighbour, topology);
+      handleNodeFailure(failedPid, topology);
       callElection(topology);
       return;
     }
@@ -650,9 +671,7 @@ var Network = (function () {
     // If we're not the leader, and the leader is alive, then we need
     // to tell the leader so they can handle it.
     // Broadcast it rather than sending directly in case the leader changes.
-    webrtc.sendDirectlyToAll(ROOM, NODE_FAIL, {
-      failedPid: checkState.neighbour
-    });
+    broadcast(ROOM, NODE_FAIL, { failedPid: failedPid });
   }
 
   // As the leader, deal with a failed node
@@ -663,8 +682,7 @@ var Network = (function () {
   //  \      /        \      /        \     |
   //   6 -- 5          6 -- 5          6 -- 5
   function handleNodeFailure(failedPid, topology) {
-    Utility.log('*** FAILED NODE ***\n' +
-          failedPid + ' has been reported as failed to the me');
+    Utility.log('*** HANDLING FAILED NODE ***\n' + failedPid);
 
     // Short circuit the dead node in the topology.
     var after  = topology[FORWARD][failedPid];
@@ -682,7 +700,7 @@ var Network = (function () {
 
     // Register the node as dead and inform everyone that it is dead.
     CheckState.failed[failedPid] = true;
-    webrtc.sendDirectlyToAll(ROOM, NODE_REMOVE, { failedPid: failedPid });
+    broadcast(ROOM, NODE_REMOVE, { failedPid: failedPid });
   }
 
   // ==== Leader failure handling.
@@ -708,15 +726,14 @@ var Network = (function () {
   var electionHandler = null;
   var electionBackup = null
 
-  var ELECTION_DURATION = MAX_CHECK_INTERVAL;
+  var BASE_ELECTION_DURATION = CHECK_DELAY;
 
   function callElection(topology) {
     // 1. The election caller contacts all processes who would get priority
     // over the caller when selecting a leader.
     // If there are no such processes, instantly win the election.
-    var higherPids =
-      Object.keys(topology[FORWARD])
-            .filter(function (pid) { return pid > myPid; });
+    var higherPids = topologyPlayers(topology)
+      .filter(function (pid) { return pid > myPid; });
     if (higherPids.length === 0) {
       winElection();
       return;
@@ -734,7 +751,7 @@ var Network = (function () {
       if (electionHandler === newElectionHandler) {
         winElection();
       }
-    }, ELECTION_DURATION);
+    }, BASE_ELECTION_DURATION);
     electionHandler = newElectionHandler;
 
     // 3. If no leader is selected after a longer timeout, then the
@@ -745,14 +762,23 @@ var Network = (function () {
       if (electionBackup === newElectionBackup) {
         winElection();
       }
-    }, higherPids.length * ELECTION_DURATION);
+    }, higherPids.length * BASE_ELECTION_DURATION);
     electionBackup = newElectionBackup;
   }
 
   // Win the election by announcing that this process is the new leader.
   function winElection() {
-    webrtc.sendDirectlyToAll(ROOM, LEADER);
+    broadcast(ROOM, LEADER);
     becomeLeader();
+  }
+
+  // Return the players of the topology in an arbitrary order.
+  function topologyPlayers(topology) {
+    if (topology) {
+      return Object.keys(topology[FORWARD]);
+    } else {
+      return [];
+    }
   }
 
   return {
@@ -763,12 +789,7 @@ var Network = (function () {
     broadcastCardCount: broadcastCardCount,
     broadcastWin: broadcastWin,
     get players() {
-      // return the forward format of the topology
-      if (topology) {
-        return Object.keys(topology[FORWARD]);
-      } else {
-        return [];
-      }
+      return topologyPlayers(topology);
     },
     get myId() {
       return myPid;
