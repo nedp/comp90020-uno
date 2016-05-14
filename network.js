@@ -50,6 +50,7 @@ var Network = (function () {
       pendingAcks:            {},
       seqNum:                 0,
       neighbour:              null,
+      lastTurnMsg:            null,
     };
 
   // Returns true if the topologies have the same leader, players,
@@ -346,7 +347,6 @@ var Network = (function () {
 
         case ACK:
           Utility.logMessage(peer, 'ACK', data.payload);
-          // TODO implement ACKs for any message from anyone
           receiveAck(peer.id, data.payload);
           break;
 
@@ -481,6 +481,7 @@ var Network = (function () {
 
     NetworkState.neighbour = topology[FORWARD][myPid];
 
+    clearTimeout(NetworkState.checkTimeoutHandler);
     checkNeighbour(NetworkState, NetworkState.neighbour);
 
     Utility.log('The leader is now ' + topology.leader);
@@ -559,16 +560,30 @@ var Network = (function () {
                       };
     
     newState.turnOwner = nextPlayer;
+    NetworkState.lastTurnMsg = turnMessage;
     sendToPid(nextPlayer, ROOM, TURN, turnMessage, function () {
-      endTurn(turnType, newState, topology[direction][nextPlayer]);
+      endTurn(turnType, newState, nextPlayer);
     });
+    checkNextTurn(nextPlayer, turnType, newState);
   }
 
-  // === TODO Failure handling functions ===
-  //
-  // Not sure what the approach is here.
-  //
-  // Maybe handle it with a decorator around SimpleWebRTC?
+  function checkNextTurn(targetPid, turnType, newState, timeout) {
+    if (turnOwner !== targetPid) {
+      if (timeout !== undefined) {
+        clearTimeout(timeout);
+      }
+      return;
+    }
+
+    sendToPid(targetPid, ROOM, CHECK, function () {
+      newState.turnOwner = myPid;
+      endTurn(turnType, newState, targetPid);
+    });
+
+    var checkTimeout = setTimeout(function () {
+      checkNextTurn(targetPid, turnType, newState, checkTimeout);
+    }, MAX_CHECK_INTERVAL*2);
+  }
 
   // Ping a neighbour and expect a response
   function checkNeighbour(networkState, neighbourPid) {
