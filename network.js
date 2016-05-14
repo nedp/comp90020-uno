@@ -24,6 +24,7 @@ var Network = (function () {
   // Application state messages
   var STATE          = 'STATE';
   var CARD_COUNT     = 'CARD_COUNT';
+  var WIN            = 'win';
 
   // Failure detection and handling messages
   var CHECK          = 'CHECK';
@@ -125,6 +126,13 @@ var Network = (function () {
         'forwards and backwards topologies must have the same pids');
 
     return topology;
+  }
+
+  // Gets ready to start a new game by resetting some of the network variables
+  function resetGame() {
+    // wipe these variables
+    isInitialised = false;
+    readySet = {};
   }
 
   function render(topology) {
@@ -338,6 +346,16 @@ var Network = (function () {
           electionHandler = null;
           break;
 
+        case WIN:
+          // Similar to the state message, but mark us as uninitialised so we
+          // can start the next game
+          Application.onUpdate(data.payload);
+          Application.onSomoneWon(peer.id);
+
+          // mark us as uninitialised
+          resetGame();
+          break;
+
         default:
           throw 'incomplete branch coverage in message handler ' +
             'switch statement: ' + data.type;
@@ -436,6 +454,14 @@ var Network = (function () {
 
   function broadcastCardCount(myCardCount) {
     webrtc.sendDirectlyToAll(ROOM, CARD_COUNT, myCardCount);
+  }
+
+  function broadcastWin(GameState) {
+    // Reset the network variables for a new game
+    resetGame();
+
+    // update everyone else
+    webrtc.sendDirectlyToAll(ROOM, WIN, GameState);
   }
 
   // Called when a process receives a topology update.
@@ -719,6 +745,7 @@ var Network = (function () {
     sendToPid: sendToPid,
     broadcastState: broadcastState,
     broadcastCardCount: broadcastCardCount,
+    broadcastWin: broadcastWin,
     get players() {
       // return the forward format of the topology
       if (topology) {

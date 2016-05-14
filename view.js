@@ -18,6 +18,7 @@ var GameView = React.createClass({
         players.push(React.createElement(PlayerView, { key: value,
           takingTurn: this.state.turnOwner === value,
           playerId: value,
+          winner: value === this.state.winner,
           cardCount: cardCount,
           idx: ++cntPlayers }));
       }.bind(this));
@@ -145,6 +146,15 @@ var PlayerView = React.createClass({
       );
     }
 
+    var winnerLabel = null;
+    if (this.props.winner) {
+      winnerLabel = React.createElement(
+        'span',
+        { className: 'label label-success' },
+        'WINNER!'
+      );
+    }
+
     return React.createElement(
       'div',
       null,
@@ -153,11 +163,11 @@ var PlayerView = React.createClass({
         { className: playerClass },
         'Player ',
         this.props.idx,
-        ' ',
         cardCountLabel,
-        '  (',
+        '(',
         this.props.playerId,
-        ')'
+        ')',
+        winnerLabel
       )
     );
   }
