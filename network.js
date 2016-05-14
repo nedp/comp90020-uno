@@ -333,17 +333,21 @@ var Network = (function () {
 
           // If the sender has a higher pid than me, then don't win any
           // current election.
-          if (peer.id > myPid && canWinElection) {
-            canWinElection = false;
+          if (peer.id > myPid) {
+            clearTimeout(electionHandler);
+            electionHandler = null;
           }
           break;
 
         case LEADER:
-          // End any ongoing election and set the new leader.
+          // Set the new leader and clear both the short election
+          // timeout and the long election timeout.
           topology.leader = peer;
+
           clearTimeout(electionHandler);
-          canWinElection = false;
           electionHandler = null;
+          clearTimeout(electionBackup);
+          electionBackup = null;
           break;
 
         case WIN:
@@ -702,14 +706,14 @@ var Network = (function () {
 
   // By default, we're not in an election.
   var electionHandler = null;
-  var canWinElection = false;
+  var electionBackup = null
 
   var ELECTION_DURATION = MAX_CHECK_INTERVAL;
 
   function callElection(topology) {
     // 1. The election caller contacts all processes who would get priority
     // over the caller when selecting a leader.
-    // If there are no such processes, the caller instantly wins the election.
+    // If there are no such processes, instantly win the election.
     var higherPids =
       Object.keys(topology[FORWARD])
             .filter(function (pid) { return pid > myPid; });
@@ -719,18 +723,30 @@ var Network = (function () {
     }
     higherPids.forEach(function(pid) { sendToPid(pid, ROOM, ELECTION); });
 
+    // Note: for the event handlers, keep the `newElectionHandler` and
+    // `newElectionBackup` reference in their own closures so that
+    // it can verify that a second election hasn't been called with dodgy
+    // message and event ordering in Internet Explorer.
+
     // 2. If the election caller has no responses after a timeout,
     // they win the election.
-    electionHandler = setTimeout(function () {
-      if (canWinElection) winElection();
+    var newElectionHandler = setTimeout(function () {
+      if (electionHandler === newElectionHandler) {
+        winElection();
+      }
     }, ELECTION_DURATION);
+    electionHandler = newElectionHandler;
 
     // 3. If no leader is selected after a longer timeout, then the
-    // caller wins the election, even if they "can't win".
+    // caller wins the election, even if a higher PID already responded.
     // The longer timeout should allow time for a complete election
     // called by every process with a higher id.
-    electionHandler =
-      setTimeout(winElection, higherPids.length * ELECTION_DURATION);
+    var newElectionBackup = setTimeout(function () {
+      if (electionBackup === newElectionBackup) {
+        winElection();
+      }
+    }, higherPids.length * ELECTION_DURATION);
+    electionBackup = newElectionBackup;
   }
 
   // Win the election by announcing that this process is the new leader.
