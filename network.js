@@ -27,6 +27,8 @@ var Network = (function () {
   var STATE          = 'STATE';
   var CARD_COUNT     = 'CARD_COUNT';
   var WIN            = 'WIN';
+  var UNO            = 'UNO';
+  var GOTCHA         = 'GOTCHA';
 
   // Failure detection and handling messages
   var CHECK          = 'CHECK';
@@ -406,6 +408,14 @@ var Network = (function () {
           resetGame();
           break;
 
+        case UNO:
+          Application.onUnoMessage(peer.id, data.payload);
+          break;
+
+        case GOTCHA:
+          Application.onGotchaMessage(peer.id, data.payload);
+          break;
+
         case TURN_ENDED:
           onTurnEndedReceived(data.payload.direction, peer.id);
           break;
@@ -526,6 +536,14 @@ var Network = (function () {
     webrtc.sendDirectlyToAll(ROOM, WIN, GameState);
   }
 
+  function broadcastUno(timing) {
+    webrtc.sendDirectlyToAll(ROOM, UNO, timing);
+  }
+
+  function sendGotcha(peerId, timing) {
+    sendToPid(peerId, ROOM, GOTCHA, timing)
+  }
+
   // Called when a process receives a topology update.
   function onTopologyUpdate(newTopology) {
     console.log('got topology ' + newTopology);
@@ -560,12 +578,8 @@ var Network = (function () {
   //
   // The game state includes:
   //
-  // * The number of cards in each player's hand;
-  //   but not the specific cards.
   // * The top card on the discard pile.
-  // * The 'Uno list', a list of players who have one card
-  //   left but haven't yet called Uno, so are vulnerable to
-  //   a Gotcha call.
+  // * Whose turn it currently is
 
   function onTurnMessage(payload) {
     var newState = payload.newState;
@@ -660,7 +674,7 @@ var Network = (function () {
     if (CheckState.handler[pid] !== null) {
       return;
     }
-      
+
     var newHandler = setTimeout(function () {
       if (newHandler === CheckState.handler[pid]) {
         reportFailure(topology.leader, pid);
@@ -897,6 +911,8 @@ var Network = (function () {
     broadcastState: broadcastState,
     broadcastCardCount: broadcastCardCount,
     broadcastWin: broadcastWin,
+    broadcastUno: broadcastUno,
+    sendGotcha: sendGotcha,
     get players() {
       return topologyPlayers(topology);
     },

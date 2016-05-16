@@ -7,6 +7,9 @@
 .turnButton {
   margin-left: 100px;
 }
+.unoButton {
+  margin-left: 100px;
+}
 .isNotMyTurn {
   opacity: 0.5;
 }
@@ -25,4 +28,6 @@
 .player td {
   padding-left: 4px;
   padding-right: 4px;
+  padding-top: 2px;
+  padding-bottom: 2px;
 }
