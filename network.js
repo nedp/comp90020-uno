@@ -16,10 +16,12 @@ var Network = (function () {
   var READY          = 'READY';
   var INITIALISE     = 'INITIALISE';
   var PREINITIALISED = 'PREINITIALISED';
+  var JOIN_NOW       = 'JOIN_NOW'
 
   // Ring mutex (turn taking) messages
   var TOPOLOGY       = 'TOPOLOGY';
   var TURN           = 'TURN';
+  var REGISTER       = 'REGISTER';
 
   // Application state messages
   var STATE          = 'STATE';
@@ -105,7 +107,10 @@ var Network = (function () {
     // Completely recalculate the topology.
     // TODO Optimise to only recalculate stuff that changes.
 
-    var topology = { leader: myPid };
+    var topology = {
+      leader: myPid,
+      pending: {},
+    };
 
     // Create the 'forward' topology based on the peer list.
     topology[FORWARD] = {};
@@ -241,9 +246,7 @@ var Network = (function () {
 
       Application.onFirstTurn(myPid);
     } else {
-      if (!topology) {
-        topology = generateTopology();
-      }
+      topology = generateTopology();
     }
 
     onJoin();
@@ -278,7 +281,7 @@ var Network = (function () {
           sendToPid(peer.id, ROOM, ACKNOWLEDGE);
         } else {
           console.log('Sending ACK directly to ' + peer.id +
-              "since my topology isn't initialised");
+              "since they aren't registered yet");
           peer.sendDirectly(ROOM, ACKNOWLEDGE);
         }
       }
@@ -334,11 +337,24 @@ var Network = (function () {
         case PREINITIALISED:
           // TODO convert INITIALISE related logic into something better.
           if (!isInitialised) {
+            // Register with the leader.
+            // Broadcast since leader can change.
+            broadcast(ROOM, REGISTER);
+          }
+          break;
+
+        case JOIN_NOW:
+          if (!isInitialised) {
             isInitialised = true;
             onJoin();
             Application.initialise();
           }
-          // TODO Register with the leader
+          break;
+
+        case REGISTER:
+          if (isInitialised && topology.leader === myPid) {
+            onJoinRequest(peer.id);
+          }
           break;
 
         case CARD_COUNT:
@@ -456,36 +472,18 @@ var Network = (function () {
   // Called when this process joins an existing game.
   function onJoin() {
     console.log('topology on join: ' + topology);
-    // All processes should periodically check on the topology
-    // if they are the leader.
-    window.setInterval(function () {
-      if (topology.leader === myPid) checkTopology();
-    }, TOPOLOGY_INTERVAL_MILLISECONDS);
   }
 
   // Called at the leader process when a processs tries to join.
-  function onJoinRequest() {
-    // TODO
-    // 1. Add the new process to the topology, as pending.
-    // 2. Broadcast the new topology.
-  }
+  function onJoinRequest(pid) {
+    // 1. Do nothing if the process is already in the game.
+    if (topology[FORWARD][pid] || topology.pending[pid]) return;
 
-  // If this process is the current leader, recomputes the topology.
-  // If it has changed, the view is updated accordingly and everyone
-  // is notified.
-  function checkTopology() {
-    Utility.assertEquals(topology.leader, myPid,
-        'only the leader may check the topology');
-    Utility.log("Checking the topology since I'm the leader");
+    // 2. Add the new process to the topology, as pending
+    topology.pending[pid] = true;
 
-    // 1. Generate the new topology.
-    var newTopology = generateTopology();
-
-    // 2. Remember and broadcast the new topology if it is different.
-    if (!topologiesAreEqual(newTopology, topology)) {
-      onTopologyUpdate(newTopology);
-      broadcastTopology(newTopology);
-    }
+    // 3. Broadcast the new topology.
+    broadcastTopology(topology);
   }
 
   function broadcastTopology(topology) {
@@ -574,7 +572,6 @@ var Network = (function () {
     // Draw cards if we're told to.
     if (nCardsToDraw) {
       Application.draw(nCardsToDraw);
-      // TODO update our card count in `newState`.
     }
 
     // Update our local state and broadcast, after we updated
@@ -615,6 +612,30 @@ var Network = (function () {
     } else {
       newDirection = direction;
     }
+    var backward = (newDirection === FORWARD) ? BACKWARD : FORWARD;
+
+    // If we're the leader, add any new pending processes
+    // to the topology, save the changes, and broadcast it.
+    var pendingPids = Object.keys(topology.pending);
+    console.log(pendingPids); // TODO
+    if (pendingPids.length > 0) {
+      pendingPids.forEach(function (pid) {
+        var last = topology[backward][myPid];
+
+        topology[backward][pid] = last;
+        topology[newDirection][last] = pid;
+
+        topology[backward][myPid] = pid;
+        topology[newDirection][pid] = myPid;
+
+        sendToPid(pid, ROOM, JOIN_NOW);
+      });
+      topology.pending = {};
+      onTopologyUpdate(topology);
+      broadcastTopology(topology);
+    }
+
+    // Let the next player have their turn.
     passTurn(turnType, newDirection, newState, nCardsToDraw);
   }
 
