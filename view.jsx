@@ -1,7 +1,7 @@
 var GameView = React.createClass({
   // initial state of the view
   getInitialState: function () {
-    return {message: 'Game initialising', myHand: []};
+    return {myHand: []};
   },
   // render function for the view
   render: function () {
@@ -140,7 +140,7 @@ var PlayerView = React.createClass({
                          {this.props.cardCount} CARDS
                        </span>;
       // don't show gotcha labels when someone has won
-      if (!this.props.winner) {
+      if (!this.props.gameFinished) {
         gotchaLabel = <span className="btn btn-sm btn-primary"
                             onClick={Application.onGotchaButton.bind(null, this.props.playerId)}>
                         Gotcha!

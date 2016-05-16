@@ -242,6 +242,7 @@ var Application = (function () {
 
       // Prepare for the next game by uninitialising our state
       LocalState.isInitialised = false;
+      LocalState.isMyTurn = false;
 
       // wipe the ready set in the view
       updateViewSpecific({ready: {}});
