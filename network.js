@@ -233,7 +233,7 @@ var Network = (function () {
     if (leader === myPid) {
       Utility.log("It's my turn first!");
 
-      becomeLeader();
+      becomeLeader(generateTopology());
 
       Application.onFirstTurn(myPid);
     } else {
@@ -244,10 +244,10 @@ var Network = (function () {
   }
 
   // When we become the leader we must recalculate the topology.
-  function becomeLeader() {
-    var newTopology = generateTopology();
+  function becomeLeader(newTopology) {
+    newTopology.leader = myPid;
     onTopologyUpdate(newTopology);
-    broadcastTopology(topology);
+    broadcastTopology(newTopology);
   }
 
   webrtc.on('readyToCall', function () {
@@ -815,7 +815,7 @@ var Network = (function () {
   // Win the election by announcing that this process is the new leader.
   function winElection() {
     broadcast(ROOM, LEADER);
-    becomeLeader();
+    becomeLeader(topology);
   }
 
   // Return the players of the topology in an arbitrary order.
