@@ -17,8 +17,7 @@ var GameView = React.createClass({
         // whether or not to show if they said uno (they are safe)
         var showSafe = false;
         if (cardCount && cardCount === 1 &&
-            (this.state.unoSet && !this.state.unoSet[value]) ||
-            (this.state.unoSafe && this.state.unoSafe[value])) {
+            (this.state.unoSet && this.state.unoSet[value] === undefined)) {
           showSafe = true;
         }
         // have we readied up
@@ -27,6 +26,7 @@ var GameView = React.createClass({
                                  takingTurn={this.state.turnOwner === value}
                                  playerId={value}
                                  winner={value === this.state.winner}
+                                 gameFinished={this.state.winner !== null}
                                  cardCount={cardCount}
                                  showSafe={showSafe}
                                  isReady={isReady}
@@ -137,7 +137,7 @@ var PlayerView = React.createClass({
     var safeLabel = null;
     if (this.props.cardCount !== null && this.props.cardCount >= 0) {
       cardCountLabel = <span className="label label-primary cardCount">
-                         {this.props.cardCount}
+                         {this.props.cardCount} CARDS
                        </span>;
       // don't show gotcha labels when someone has won
       if (!this.props.winner) {
@@ -150,7 +150,12 @@ var PlayerView = React.createClass({
       if (this.props.showSafe) {
         safeLabel = <span className="label label-success">SAFE</span>;
       }
-    } else if (this.props.isReady) {
+    }
+
+    // either the game hasn't started and they are ready
+    // or the game has finished and they are ready
+    if (this.props.cardCount === null && this.props.isReady ||
+        this.props.gameFinished && this.props.isReady) {
       readyLabel = <span className="label label-primary">
                   READY
                 </span>;
@@ -173,7 +178,7 @@ var PlayerView = React.createClass({
     return <tr className={'player ' + turnClass}>
                <td>{meLabel}</td>
                <td>Player {this.props.idx}</td>
-               <td>{readyLabel}{cardCountLabel}{safeLabel}</td>
+               <td>{cardCountLabel}{safeLabel}{readyLabel}</td>
                <td>({this.props.playerId})</td>
                <td>{ gotchaLabel }{winnerLabel}</td>
              </tr>;

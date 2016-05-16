@@ -17,7 +17,6 @@ var Application = (function () {
     winner: null,
     // remember who is in uno / safe from gotcha
     unoSet: {},
-    unoSafe: {},
     // only need to keep my time taken to press uno
     timeTakenToUno: null,
   };
@@ -105,7 +104,6 @@ var Application = (function () {
     } else if (LocalState.unoSet[peerId]) {
       // they shouldn't be in the uno set anymore, unmark them
       delete LocalState.unoSet[peerId];
-      delete LocalState.unoSafe[peerId];
     }
 
     updateView();
@@ -119,6 +117,10 @@ var Application = (function () {
     // Prepare for the next game by uninitialising our state
     LocalState.isInitialised = false;
 
+    // wipe the ready set in the view
+    updateViewSpecific({ready: {}});
+
+    // update the view with all the local and gamestate data
     updateView();
   }
 
@@ -147,6 +149,10 @@ var Application = (function () {
     //    else enable it.
     // 5. Enable the Gotcha button if a different player is on the Uno
     //    list, else disable it.
+  }
+
+  function updateViewSpecific(state) {
+    RootComponent.setState(state);
   }
 
   // Called when the previous process passes the turn to us.
@@ -199,11 +205,15 @@ var Application = (function () {
     // checks for local card in the uno set
     if (count === 1) {
       LocalState.unoSet[Network.myId] = +new Date();
-    } else if (LocalState.unoSet[Network.myId]) {
-      // clear the uno variables for myself in case anyone comes calling
-      // I won't be susceptible to gotchas anymore
-      delete LocalState.unoSet[Network.myId];
       LocalState.timeTakenToUno = null;
+    } else if (LocalState.unoSet[Network.myId]) {
+      // Store locally how long it took me to say uno / get out of uno
+      // and remove myself from the unoSet
+      // This allows other people to still call uno if I just picked up a new
+      // card but they saw me on 1 card and called gotcha faster than it took
+      // me to move out of being vulnerable
+      LocalState.timeTakenToUno = +new Date() - LocalState.unoSet[Network.myId];
+      delete LocalState.unoSet[Network.myId];
     }
 
     // update the view
@@ -232,6 +242,9 @@ var Application = (function () {
 
       // Prepare for the next game by uninitialising our state
       LocalState.isInitialised = false;
+
+      // wipe the ready set in the view
+      updateViewSpecific({ready: {}});
     } else {
       // 4. Pass the turn to the next process.
       // TODO Wait for an ack.
@@ -350,14 +363,20 @@ var Application = (function () {
   // Called when the player calls Gotcha via the UI.
   function onGotchaButton(peerId) {
     if (LocalState.unoSet[peerId]) {
+      // send them a gotcha message only when we think they haven't pressed
+      // uno yet from our point of view
       Network.sendGotcha(peerId, +new Date() - LocalState.unoSet[peerId]);
-    } else {
-      // draw 4 cards for calling gotcha at the wrong time
+    } else if (LocalState.cardCounts[peerId] !== 1) {
+      // draw 4 cards for calling gotcha when they aren't actually on 1 card
+      // left (we don't want to penalise someone for saying gotcha to someone
+      // with one card even if they are safe)
       draw(4);
     }
   }
 
-  // Called when another process sends us an Uno message.
+  // Called when another process sends us an Uno message
+  // letting us know they are safe and how long it took them
+  // to say uno
   function onUnoMessage(peer, timeTaken) {
     // bookmark what time they received their 1 card at
     var unoTime = LocalState.unoSet[peer];
@@ -370,20 +389,15 @@ var Application = (function () {
       // we may still have extra time before we are at his timing
       // if so take it into account in the timeout
       var timeDiff = Math.abs(+new Date() - LocalState.unoSet[peer] - timeTaken);
-      // only remove them from the LocalState.unoSet in a certain amount of time
+      // only remove them from the LocalState.unoSet once it's taken us
+      // longer to say gotcha than them to say uno
       setTimeout(function () {
         // make sure if we are wiping it, it's for the right uno
         if (LocalState.unoSet[peer] && LocalState.unoSet[peer] === unoTime) {
           delete LocalState.unoSet[peer];
-          delete LocalState.unoSafe[peer];
         }
         updateView();
-      }, SAFE_UNO_SURROUNDING + timeDiff);
-      // update the view to show they pressed uno
-      // just until the above function clears so we don't see a lag
-      // on them pressing uno
-      LocalState.unoSafe[peer] = true;
-      updateView();
+      }, timeDiff);
     }
   }
 
