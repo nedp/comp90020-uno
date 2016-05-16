@@ -223,14 +223,8 @@ var Network = (function () {
     Utility.log('Sending ' + type + ' to peer ' + targetPid);
     var peer = pidMap[targetPid];
 
-    // TODO Remove log
-    if (peer === undefined) {
-      console.log(pidMap);
-    }
-
     if (type !== ACKNOWLEDGE) check(targetPid);
 
-    console.log(peer);
     peer.sendDirectly(room, type, message);
   }
 
@@ -270,7 +264,6 @@ var Network = (function () {
     var newTopology = generateTopology();
 
     onTopologyUpdate(newTopology);
-    console.log(topology);
     broadcastTopology(topology);
   }
 
@@ -670,13 +663,14 @@ var Network = (function () {
   // Sets up a check for whether the process with the specified pid
   // is alive.
   function check(pid) {
-    // Set up the timeout for a response.
+    // Don't repeatedly push the timeout forward.
     if (CheckState.handler[pid] !== null) {
       return;
     }
 
     var newHandler = setTimeout(function () {
       if (newHandler === CheckState.handler[pid]) {
+        CheckState.handler[pid] = null;
         reportFailure(topology.leader, pid);
       }
     }, CHECK_DELAY);
@@ -763,8 +757,6 @@ var Network = (function () {
     // Remove the dead node from the topology.
     delete topology[FORWARD][failedPid];
     delete topology[BACKWARD][failedPid];
-
-    console.log(topology);
 
     // Render and broadcast the topology.
     broadcastTopology(topology);
@@ -871,6 +863,7 @@ var Network = (function () {
   }
 
   function onNodeRemove(failedPid) {
+    console.log('*** REMOVING ***', failedPid);
     CheckState.failed[failedPid] = true;
     clearTimeout(CheckState.handler[failedPid]);
 
