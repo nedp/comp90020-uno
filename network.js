@@ -89,23 +89,15 @@ var Network = (function () {
     });
   }
 
-  // Regenerate the topology and return it.
+  // Regenerate the topology completely and return it.
   // This generates the topology in both directions (which makes
   // 'reverse' card logic easier).
-  // TODO update this to use manual registration with the leader rather
-  // than getting a list of processes from webrtc.
+  // This function is for generating the initial topology; WebRTC is used.
+  // After the system is initialised, other methods of maintaining topology
+  // can be used.
   function generateTopology() {
-    // TODO use manual registration rather than WebRTC's peers.
     var peers = webrtc.getPeers();
     var pids = [myPid].concat(peers.map(function (p) { return p.id; }));
-
-    // TODO Set all PENDING processs to be LIVE.
-    //      Processes may be either PENDING, LIVE, or DEAD.
-    //      DEAD processes must register with the leader to become PENDING.
-    //      On the leader's turn, PENDING processes become LIVE again.
-
-    // Completely recalculate the topology.
-    // TODO Optimise to only recalculate stuff that changes.
 
     var topology = {
       leader: myPid,
@@ -223,7 +215,6 @@ var Network = (function () {
     peer.sendDirectly(room, type, message);
   }
 
-  // TODO convert INITIALISE related logic into something better.
   var isInitialised = false;
   function initialise() {
     Utility.assert(!isInitialised, 'Network initialised twice');
@@ -302,7 +293,7 @@ var Network = (function () {
             readySet[peer.id] = true;
             renderReady(readySet);
 
-            // TODO don't cheat
+            // Since the system isn't initialised yet, use WebRTC's peer list.
             var peers = webrtc.getPeers();
             var pids = [myPid].concat(peers.map(function(p) { return p.id; }));
             var mayInitialise = pids.every(function(pid) {
@@ -328,14 +319,12 @@ var Network = (function () {
           break;
 
         case INITIALISE:
-          // TODO convert INITIALISE related logic into something better.
           if (isInitialised) break;
           initialise();
           Application.initialise();
           break;
 
         case PREINITIALISED:
-          // TODO convert INITIALISE related logic into something better.
           if (!isInitialised) {
             // Register with the leader.
             // Broadcast since leader can change.
@@ -426,7 +415,6 @@ var Network = (function () {
   function readyUp() {
     readySet[myPid] = true;
     renderReady(readySet);
-    // TODO convert INITIALISE related logic into something better.
     var peers = webrtc.getPeers();
     if (peers.length !== 0) {
       // Don't use the `broadcast` function because we're still
@@ -654,7 +642,7 @@ var Network = (function () {
     });
   }
 
-  // === TODO Failure handling functions ===
+  // === Failure handling functions ===
   //
   // Not sure what the approach is here.
   //
