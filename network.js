@@ -25,6 +25,8 @@ var Network = (function () {
   var STATE          = 'STATE';
   var CARD_COUNT     = 'CARD_COUNT';
   var WIN            = 'win';
+  var UNO = 'uno';
+  var GOTCHA = 'gotcha';
 
   // Failure detection and handling messages
   var CHECK          = 'CHECK';
@@ -388,6 +390,14 @@ var Network = (function () {
           resetGame();
           break;
 
+        case UNO:
+          Application.onUnoMessage(peer.id, data.payload);
+          break;
+
+        case GOTCHA:
+          Application.onGotchaMessage(peer.id, data.payload);
+          break;
+
         default:
           throw 'incomplete branch coverage in message handler ' +
             'switch statement: ' + data.type;
@@ -500,6 +510,14 @@ var Network = (function () {
     webrtc.sendDirectlyToAll(ROOM, WIN, GameState);
   }
 
+  function broadcastUno(timing) {
+    webrtc.sendDirectlyToAll(ROOM, UNO, timing);
+  }
+
+  function sendGotcha(peerId, timing) {
+    sendToPid(peerId, ROOM, GOTCHA, timing)
+  }
+
   // Called when a process receives a topology update.
   function onTopologyUpdate(newTopology) {
     console.log('got topology ' + newTopology);
@@ -534,12 +552,8 @@ var Network = (function () {
   //
   // The game state includes:
   //
-  // * The number of cards in each player's hand;
-  //   but not the specific cards.
   // * The top card on the discard pile.
-  // * The 'Uno list', a list of players who have one card
-  //   left but haven't yet called Uno, so are vulnerable to
-  //   a Gotcha call.
+  // * Whose turn it currently is
 
   function onTurnMessage(payload) {
     var newState = payload.newState;
@@ -806,6 +820,8 @@ var Network = (function () {
     broadcastState: broadcastState,
     broadcastCardCount: broadcastCardCount,
     broadcastWin: broadcastWin,
+    broadcastUno: broadcastUno,
+    sendGotcha: sendGotcha,
     get players() {
       return topologyPlayers(topology);
     },
