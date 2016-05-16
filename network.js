@@ -345,6 +345,7 @@ var Network = (function () {
 
         case JOIN_NOW:
           if (!isInitialised) {
+            onTopologyUpdate(data.payload);
             isInitialised = true;
             onJoin();
             Application.initialise();
@@ -617,8 +618,8 @@ var Network = (function () {
     // If we're the leader, add any new pending processes
     // to the topology, save the changes, and broadcast it.
     var pendingPids = Object.keys(topology.pending);
-    console.log(pendingPids); // TODO
     if (pendingPids.length > 0) {
+      // First add all the pending processes at once.
       pendingPids.forEach(function (pid) {
         var last = topology[backward][myPid];
 
@@ -627,10 +628,14 @@ var Network = (function () {
 
         topology[backward][myPid] = pid;
         topology[newDirection][pid] = myPid;
-
-        sendToPid(pid, ROOM, JOIN_NOW);
       });
       topology.pending = {};
+
+      // Secondly, tell the pending processes that they can join.
+      pendingPids.forEach(function (pid) {
+        sendToPid(pid, ROOM, JOIN_NOW, topology);
+      });
+
       onTopologyUpdate(topology);
       broadcastTopology(topology);
     }
