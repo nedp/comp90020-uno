@@ -657,6 +657,10 @@ var Network = (function () {
   // is alive.
   function check(pid) {
     // Set up the timeout for a response.
+    if (CheckState.handler[pid] !== null) {
+      return;
+    }
+      
     var newHandler = setTimeout(function () {
       if (newHandler === CheckState.handler[pid]) {
         reportFailure(topology.leader, pid);
