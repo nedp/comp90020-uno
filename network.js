@@ -222,7 +222,11 @@ var Network = (function () {
 
     if (type !== ACKNOWLEDGE) check(targetPid);
 
-    peer.sendDirectly(room, type, message);
+    if (peer !== undefined) {
+      peer.sendDirectly(room, type, message);
+    } else {
+      Utility.log('Not sending to ' + targetPid + ', they are undefined.');
+    }
   }
 
   var isInitialised = false;
@@ -640,29 +644,30 @@ var Network = (function () {
 
     // If we're the leader, add any new pending processes
     // to the topology, save the changes, and broadcast it.
-    var pendingPids = Object.keys(topology.pending);
-    if (pendingPids.length > 0) {
-      // First add all the pending processes at once.
-      pendingPids.forEach(function (pid) {
-        var last = topology[backward][myPid];
+    if (topology.leader === myPid) {
+      var pendingPids = Object.keys(topology.pending);
+      if (pendingPids.length > 0) {
+        // First add all the pending processes at once.
+        pendingPids.forEach(function (pid) {
+          var last = topology[backward][myPid];
 
-        topology[backward][pid] = last;
-        topology[newDirection][last] = pid;
+          topology[backward][pid] = last;
+          topology[newDirection][last] = pid;
 
-        topology[backward][myPid] = pid;
-        topology[newDirection][pid] = myPid;
-      });
-      topology.pending = {};
+          topology[backward][myPid] = pid;
+          topology[newDirection][pid] = myPid;
+        });
+        topology.pending = {};
 
-      // Secondly, tell the pending processes that they can join.
-      pendingPids.forEach(function (pid) {
-        sendToPid(pid, ROOM, JOIN_NOW, topology);
-      });
+        // Secondly, tell the pending processes that they can join.
+        pendingPids.forEach(function (pid) {
+          sendToPid(pid, ROOM, JOIN_NOW, topology);
+        });
 
-      onTopologyUpdate(topology);
-      broadcastTopology(topology);
+        onTopologyUpdate(topology);
+        broadcastTopology(topology);
+      }
     }
-
 
     // Update my turn own turn state.
     var newTurnCount = turnCount + 1;
@@ -846,6 +851,9 @@ var Network = (function () {
     // it can verify that a second election hasn't been called with dodgy
     // message and event ordering in Internet Explorer.
 
+    // Don't let elections overlap.
+    if (electionHandler !== null) return;
+
     // 2. If the election caller has no responses after a timeout,
     // they win the election.
     var newElectionHandler = setTimeout(function () {
@@ -854,6 +862,9 @@ var Network = (function () {
       }
     }, BASE_ELECTION_DURATION);
     electionHandler = newElectionHandler;
+
+    // Don't let elections overlap.
+    if (electionBackup !== null) return;
 
     // 3. If no leader is selected after a longer timeout, then the
     // caller wins the election, even if a higher PID already responded.
@@ -869,6 +880,8 @@ var Network = (function () {
 
   // Win the election by announcing that this process is the new leader.
   function winElection() {
+    electionHandler = null;
+    electionBackup = null;
     broadcast(ROOM, LEADER);
     becomeLeader(topology);
   }
