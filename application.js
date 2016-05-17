@@ -83,11 +83,6 @@ var Application = (function () {
 
   // Called when another process sends us a state update.
   function onUpdate(newState) {
-    // 1. Ensure that the turn order is logically consistent
-    //    with respect to the happened-before relationship.
-    Utility.assert(newState.turnsTaken >= GameState.turnsTaken,
-        'turnsTaken must monotonically increase; new: ' + newState.turnsTaken +
-        '; old: ' + GameState.turnsTaken);
     GameState = newState;
 
     updateView();
