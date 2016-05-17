@@ -17,18 +17,20 @@ var Network = (function () {
   var INITIALISE     = 'INITIALISE';
   var PREINITIALISED = 'PREINITIALISED';
   var JOIN_NOW       = 'JOIN_NOW'
+  var REGISTER       = 'REGISTER';
 
   // Ring mutex (turn taking) messages
   var TOPOLOGY       = 'TOPOLOGY';
   var TURN           = 'TURN';
-  var REGISTER       = 'REGISTER';
+  var TURN_ENDED     = 'TURN_ENDED';
+  var RECOVER        = 'RECOVER';
 
   // Application state messages
   var STATE          = 'STATE';
   var CARD_COUNT     = 'CARD_COUNT';
-  var WIN            = 'win';
-  var UNO = 'uno';
-  var GOTCHA = 'gotcha';
+  var WIN            = 'WIN';
+  var UNO            = 'UNO';
+  var GOTCHA         = 'GOTCHA';
 
   // Failure detection and handling messages
   var CHECK          = 'CHECK';
@@ -66,6 +68,8 @@ var Network = (function () {
     neighbourCheck: null,
     failed:         {},
   };
+
+  var TurnState = {};
 
   // Returns true if the topologies have the same leader, players,
   // and order of the players in both directions.
@@ -192,7 +196,8 @@ var Network = (function () {
     // If we're initialised properly, send to each peer individually.
     if (isInitialised) {
       topologyPlayers(topology).forEach(function (pid) {
-        if (pid !== myPid && !CheckState.failed[pid]) {
+        if (pid !== myPid && !CheckState.failed[pid] &&
+            pidMap[pid] !== undefined) {
           sendToPid(pid, room, type, message);
         }
       });
@@ -358,12 +363,12 @@ var Network = (function () {
 
         case NODE_FAIL:
           if(topology && myPid === topology.leader) {
-            handleNodeFailure(peer.id, data.payload.failedPid, topology);
+            handleNodeFailure(data.payload.failedPid, topology);
           }
           break;
 
         case NODE_REMOVE:
-          CheckState.failed[data.payload.failedPid] = true;
+          onNodeRemove(data.payload.failedPid);
           break;
 
         case ELECTION:
@@ -402,6 +407,14 @@ var Network = (function () {
 
         case GOTCHA:
           Application.onGotchaMessage(peer.id, data.payload);
+          break;
+
+        case TURN_ENDED:
+          onTurnEndedReceived(data.payload.direction, peer.id);
+          break;
+
+        case RECOVER:
+          recover();
           break;
 
         default:
@@ -593,6 +606,10 @@ var Network = (function () {
     Utility.assert(newState.turnOwner === myPid,
         "tried to take a turn when it's not our turn");
 
+    TurnState.newState     = JSON.parse(JSON.stringify(newState));
+    TurnState.turnType     = turnType;
+    TurnState.nCardsToDraw = nCardsToDraw;
+
     // Flip the turn direction if this is a reverse turn.
     var newDirection;
     if (turnType === TurnType.REVERSE) {
@@ -628,7 +645,10 @@ var Network = (function () {
       broadcastTopology(topology);
     }
 
-    // Let the next player have their turn.
+    // Announce the end of my turn and pass the turn to the
+    // next process.
+    onTurnEndedReceived(newDirection, myPid);
+    broadcast(ROOM, TURN_ENDED, { direction: newDirection });
     passTurn(turnType, newDirection, newState, nCardsToDraw);
   }
 
@@ -651,9 +671,14 @@ var Network = (function () {
   // Sets up a check for whether the process with the specified pid
   // is alive.
   function check(pid) {
-    // Set up the timeout for a response.
+    // Don't repeatedly push the timeout forward.
+    if (CheckState.handler[pid] !== null) {
+      return;
+    }
+
     var newHandler = setTimeout(function () {
       if (newHandler === CheckState.handler[pid]) {
+        CheckState.handler[pid] = null;
         reportFailure(topology.leader, pid);
       }
     }, CHECK_DELAY);
@@ -709,7 +734,6 @@ var Network = (function () {
     // and elect a new one.
     if (failedPid === leaderPid) {
       Utility.log("The leader has failed!");
-      handleNodeFailure(failedPid, topology);
       callElection(topology);
       return;
     }
@@ -730,11 +754,13 @@ var Network = (function () {
   function handleNodeFailure(failedPid, topology) {
     Utility.log('*** HANDLING FAILED NODE ***\n' + failedPid);
 
-    // Short circuit the dead node in the topology.
-    var after  = topology[FORWARD][failedPid];
-    var before = topology[BACKWARD][failedPid];
-    topology[FORWARD][before] = after;
-    topology[BACKWARD][after] = before;
+    if (topology[FORWARD][failedPid] !== undefined) {
+      // Short circuit the dead node in the topology.
+      var after  = topology[FORWARD][failedPid];
+      var before = topology[BACKWARD][failedPid];
+      topology[FORWARD][before] = after;
+      topology[BACKWARD][after] = before;
+    }
 
     // Remove the dead node from the topology.
     delete topology[FORWARD][failedPid];
@@ -747,6 +773,7 @@ var Network = (function () {
     // Register the node as dead and inform everyone that it is dead.
     CheckState.failed[failedPid] = true;
     broadcast(ROOM, NODE_REMOVE, { failedPid: failedPid });
+    onNodeRemove(failedPid);
   }
 
   // ==== Leader failure handling.
@@ -770,7 +797,7 @@ var Network = (function () {
 
   // By default, we're not in an election.
   var electionHandler = null;
-  var electionBackup = null
+  var electionBackup = null;
 
   var BASE_ELECTION_DURATION = CHECK_DELAY;
 
@@ -825,6 +852,57 @@ var Network = (function () {
     } else {
       return [];
     }
+  }
+
+  function onTurnEndedReceived(direction, pid) {
+    TurnState.backup = [];
+    TurnState.remaining = {};
+    var current = myPid;
+    while (current !== pid) {
+      TurnState.backup.push(current);
+      current = topology[direction][current];
+    }
+    TurnState.backup.push(pid);
+    current = topology[direction][pid];
+    while (current !== myPid) {
+      TurnState.remaining[current] = true;
+      current = topology[direction][current];
+    }
+  }
+
+  function onNodeRemove(failedPid) {
+    console.log('*** REMOVING ***', failedPid);
+    CheckState.failed[failedPid] = true;
+    clearTimeout(CheckState.handler[failedPid]);
+
+    if (TurnState.remaining === undefined) {
+      return;
+    }
+
+    delete TurnState.remaining[failedPid];
+
+    if (Object.keys(TurnState.remaining).length === 0) {
+      var pid;
+      for (var i = TurnState.backup.length-1; i >= 0; i -= 1) {
+        pid = TurnState.backup[i];
+        if (CheckState.failed[pid]) {
+          TurnState.backup.pop();
+        }
+        else {
+          break;
+        }
+      }
+      if (TurnState.backup.length === 0) {
+        recover();
+      }
+      else {
+        sendToPid(pid, ROOM, RECOVER);
+      }
+    }
+  }
+
+  function recover() {
+    endTurn(TurnState.turnType, TurnState.newState, TurnState.nCardsToDraw);
   }
 
   return {
