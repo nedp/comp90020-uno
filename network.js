@@ -24,6 +24,7 @@ var Network = (function () {
   var TURN           = 'TURN';
   var TURN_ENDED     = 'TURN_ENDED';
   var RECOVER        = 'RECOVER';
+  var ROLLBACK       = 'ROLLBACK';
 
   // Application state messages
   var STATE          = 'STATE';
@@ -69,6 +70,10 @@ var Network = (function () {
     failed:         {},
   };
 
+  // A logical clock for turn and state messages.
+  var turnCount = 0;
+
+  // A backup state for recovery of turn taker failure.
   var TurnState = {};
 
   // Returns true if the topologies have the same leader, players,
@@ -239,8 +244,6 @@ var Network = (function () {
       Utility.log("It's my turn first!");
 
       becomeLeader(generateTopology());
-
-      Application.onFirstTurn(myPid);
     } else {
       topology = generateTopology();
     }
@@ -250,6 +253,9 @@ var Network = (function () {
 
   // When we become the leader we must recalculate the topology.
   function becomeLeader(newTopology) {
+    if (turnCount === 0) {
+      Application.onFirstTurn(myPid);
+    }
     newTopology.leader = myPid;
     onTopologyUpdate(newTopology);
     broadcastTopology(newTopology);
@@ -410,7 +416,11 @@ var Network = (function () {
           break;
 
         case TURN_ENDED:
-          onTurnEndedReceived(data.payload.direction, peer.id);
+          onTurnEndedReceived(data.payload, peer.id);
+          break;
+
+        case ROLLBACK:
+          onRollback(data.turnCount);
           break;
 
         case RECOVER:
@@ -559,6 +569,14 @@ var Network = (function () {
     var newState = payload.newState;
     var turnType = payload.turnType;
     var nCardsToDraw = payload.nCardsToDraw;
+    var newTurnCount = payload.turnCount;
+
+    // Don't go back in time.
+    if (newTurnCount < turnCount) {
+      Utility.log('Ignoring outdated TURN message: ' + newTurnCount);
+      return;
+    }
+    turnCount = newTurnCount;
 
     // Adhere to the direction which was passed to us.
     direction = payload.direction;
@@ -645,16 +663,26 @@ var Network = (function () {
       broadcastTopology(topology);
     }
 
-    // Announce the end of my turn and pass the turn to the
-    // next process.
-    onTurnEndedReceived(newDirection, myPid);
-    broadcast(ROOM, TURN_ENDED, { direction: newDirection });
+
+    // Update my turn own turn state.
+    var newTurnCount = turnCount + 1;
+    onTurnEndedReceived({
+      turnCount: newTurnCount,
+      direction: newDirection,
+    }, myPid);
+
+    // Announce the end of my turn and pass the turn to the next process.
+    broadcast(ROOM, TURN_ENDED, {
+      turnCount: newTurnCount,
+      direction: newDirection,
+    });
     passTurn(turnType, newDirection, newState, nCardsToDraw);
   }
 
   function passTurn(turnType, newDirection, newState, nCardsToDraw) {
     var nextPlayer = topology[newDirection][myPid];
     sendToPid(nextPlayer, ROOM, TURN, {
+      turnCount: turnCount,
       turnType: turnType,
       newState: newState,
       direction: newDirection,
@@ -854,7 +882,16 @@ var Network = (function () {
     }
   }
 
-  function onTurnEndedReceived(direction, pid) {
+  function onRollback(newTurnCount) {
+    turnCount = newTurnCount;
+  }
+
+  function onTurnEndedReceived(data, pid) {
+    var turnCount = data.turnCount;
+    var direction = data.direction;
+
+    if (turnCount < TurnState.turnCount) return;
+
     TurnState.backup = [];
     TurnState.remaining = {};
     var current = myPid;
@@ -862,6 +899,7 @@ var Network = (function () {
       TurnState.backup.push(current);
       current = topology[direction][current];
     }
+
     TurnState.backup.push(pid);
     current = topology[direction][pid];
     while (current !== myPid) {
@@ -902,6 +940,8 @@ var Network = (function () {
   }
 
   function recover() {
+    turnCount = TurnState.turnCount - 1;
+    broadcast(ROOM, ROLLBACK, TurnState.turnCount);
     endTurn(TurnState.turnType, TurnState.newState, TurnState.nCardsToDraw);
   }
 
