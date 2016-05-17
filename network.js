@@ -875,11 +875,17 @@ var Network = (function () {
 
   // Return the players of the topology in an arbitrary order.
   function topologyPlayers(topology) {
-    if (topology) {
-      return Object.keys(topology[FORWARD]);
-    } else {
+    if (!topology) {
       return [];
     }
+    var players = [];
+    players.push(topology.leader);
+    var current = topology[FORWARD][topology.leader];
+    while (current !== topology.leader) {
+      players.push(current);
+      current = topology[FORWARD][current];
+    }
+    return players;
   }
 
   function onRollback(newTurnCount) {
