@@ -16,7 +16,7 @@ var Network = (function () {
   var READY          = 'READY';
   var INITIALISE     = 'INITIALISE';
   var PREINITIALISED = 'PREINITIALISED';
-  var JOIN_NOW       = 'JOIN_NOW'
+  var JOIN_NOW       = 'JOIN_NOW';
   var REGISTER       = 'REGISTER';
 
   // Ring mutex (turn taking) messages
@@ -529,7 +529,7 @@ var Network = (function () {
   }
 
   function sendGotcha(peerId, timing) {
-    sendToPid(peerId, ROOM, GOTCHA, timing)
+    sendToPid(peerId, ROOM, GOTCHA, timing);
   }
 
   // Called when a process receives a topology update.
@@ -852,7 +852,7 @@ var Network = (function () {
     // message and event ordering in Internet Explorer.
 
     // Don't let elections overlap.
-    if (electionHandler !== null) return;
+    if (electionHandler !== null || electionBackup !== null) return;
 
     // 2. If the election caller has no responses after a timeout,
     // they win the election.
@@ -862,9 +862,6 @@ var Network = (function () {
       }
     }, BASE_ELECTION_DURATION);
     electionHandler = newElectionHandler;
-
-    // Don't let elections overlap.
-    if (electionBackup !== null) return;
 
     // 3. If no leader is selected after a longer timeout, then the
     // caller wins the election, even if a higher PID already responded.
