@@ -248,8 +248,6 @@ var Network = (function () {
       Utility.log("It's my turn first!");
 
       becomeLeader(generateTopology());
-    } else {
-      topology = generateTopology();
     }
 
     onJoin();
@@ -444,9 +442,9 @@ var Network = (function () {
     renderReady(readySet);
     var peers = webrtc.getPeers();
     if (peers.length !== 0) {
-      // Don't use the `broadcast` function because we're still
-      // establishing the initial network.
-      webrtc.sendDirectlyToAll(ROOM, READY);
+      // Since we're still establishing the network, this will
+      // use the broadcast supplied by WebRTC, not our own S-Multicast.
+      broadcast(ROOM, READY);
     }
   }
 
@@ -585,13 +583,13 @@ var Network = (function () {
     // Adhere to the direction which was passed to us.
     direction = payload.direction;
 
+    // Accept the new turn.
+    newState.turnOwner = myPid;
+
     if (!isInitialised) {
       endTurn(turnType, newState, nCardsToDraw);
       return;
     }
-
-    // Accept the new turn.
-    newState.turnOwner = myPid;
 
     // Draw cards if we're told to.
     if (nCardsToDraw) {
@@ -611,6 +609,7 @@ var Network = (function () {
         break;
 
       case TurnType.NORMAL:
+        console.log('====== RECEIVING TURN');
         Application.onTurnReceived();
         break;
 
@@ -686,13 +685,20 @@ var Network = (function () {
 
   function passTurn(turnType, newDirection, newState, nCardsToDraw) {
     var nextPlayer = topology[newDirection][myPid];
-    sendToPid(nextPlayer, ROOM, TURN, {
+
+    var payload = {
       turnCount: turnCount,
       turnType: turnType,
       newState: newState,
       direction: newDirection,
       nCardsToDraw: nCardsToDraw,
-    });
+    };
+
+    if (nextPlayer === myPid) {
+      onTurnMessage(payload);
+    } else {
+      sendToPid(nextPlayer, ROOM, TURN, payload);
+    }
   }
 
   // === Failure handling functions ===
@@ -835,6 +841,14 @@ var Network = (function () {
   var BASE_ELECTION_DURATION = CHECK_DELAY;
 
   function callElection(topology) {
+    // Note: for the event handlers, keep the `newElectionHandler` and
+    // `newElectionBackup` reference in their own closures so that
+    // it can verify that a second election hasn't been called with dodgy
+    // message and event ordering in Internet Explorer.
+
+    // Don't let elections overlap.
+    if (electionHandler !== null || electionBackup !== null) return;
+
     // 1. The election caller contacts all processes who would get priority
     // over the caller when selecting a leader.
     // If there are no such processes, instantly win the election.
@@ -844,15 +858,8 @@ var Network = (function () {
       winElection();
       return;
     }
+
     higherPids.forEach(function(pid) { sendToPid(pid, ROOM, ELECTION); });
-
-    // Note: for the event handlers, keep the `newElectionHandler` and
-    // `newElectionBackup` reference in their own closures so that
-    // it can verify that a second election hasn't been called with dodgy
-    // message and event ordering in Internet Explorer.
-
-    // Don't let elections overlap.
-    if (electionHandler !== null || electionBackup !== null) return;
 
     // 2. If the election caller has no responses after a timeout,
     // they win the election.
@@ -946,7 +953,7 @@ var Network = (function () {
           break;
         }
       }
-      if (TurnState.backup.length === 0) {
+      if (TurnState.backup.length === 0 || pid === myPid) {
         recover();
       }
       else {
@@ -956,6 +963,7 @@ var Network = (function () {
   }
 
   function recover() {
+    Application.cancelTurn();
     turnCount = TurnState.turnCount - 1;
     broadcast(ROOM, ROLLBACK, TurnState.turnCount);
     endTurn(TurnState.turnType, TurnState.newState, TurnState.nCardsToDraw);
