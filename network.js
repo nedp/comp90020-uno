@@ -609,6 +609,7 @@ var Network = (function () {
         break;
 
       case TurnType.NORMAL:
+        console.log('====== RECEIVING TURN');
         Application.onTurnReceived();
         break;
 
