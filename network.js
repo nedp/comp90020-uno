@@ -835,6 +835,14 @@ var Network = (function () {
   var BASE_ELECTION_DURATION = CHECK_DELAY;
 
   function callElection(topology) {
+    // Note: for the event handlers, keep the `newElectionHandler` and
+    // `newElectionBackup` reference in their own closures so that
+    // it can verify that a second election hasn't been called with dodgy
+    // message and event ordering in Internet Explorer.
+
+    // Don't let elections overlap.
+    if (electionHandler !== null || electionBackup !== null) return;
+
     // 1. The election caller contacts all processes who would get priority
     // over the caller when selecting a leader.
     // If there are no such processes, instantly win the election.
@@ -844,15 +852,8 @@ var Network = (function () {
       winElection();
       return;
     }
+
     higherPids.forEach(function(pid) { sendToPid(pid, ROOM, ELECTION); });
-
-    // Note: for the event handlers, keep the `newElectionHandler` and
-    // `newElectionBackup` reference in their own closures so that
-    // it can verify that a second election hasn't been called with dodgy
-    // message and event ordering in Internet Explorer.
-
-    // Don't let elections overlap.
-    if (electionHandler !== null || electionBackup !== null) return;
 
     // 2. If the election caller has no responses after a timeout,
     // they win the election.
