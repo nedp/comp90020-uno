@@ -957,6 +957,7 @@ var Network = (function () {
   }
 
   function recover() {
+    Application.cancelTurn();
     turnCount = TurnState.turnCount - 1;
     broadcast(ROOM, ROLLBACK, TurnState.turnCount);
     endTurn(TurnState.turnType, TurnState.newState, TurnState.nCardsToDraw);

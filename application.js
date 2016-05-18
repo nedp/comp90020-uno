@@ -411,6 +411,13 @@ var Application = (function () {
     // be penalised but I shouldn't have to draw cards)
   }
 
+  // Forcibly cancels this process' turn, used during recovery.
+  function cancelTurn() {
+    LocalState.isMyTurn = false;
+    console.log('canceling turn');
+    updateView();
+  }
+
   return {
     // ==== For front end ====
 
@@ -440,6 +447,7 @@ var Application = (function () {
     onFirstTurn: onFirstTurn,
     onTurnReceived: onTurnReceived,
     draw: draw,
+    cancelTurn: cancelTurn,
 
     // Uno/gotcha
     onUnoMessage: onUnoMessage,
