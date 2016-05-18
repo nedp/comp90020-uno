@@ -585,13 +585,13 @@ var Network = (function () {
     // Adhere to the direction which was passed to us.
     direction = payload.direction;
 
+    // Accept the new turn.
+    newState.turnOwner = myPid;
+
     if (!isInitialised) {
       endTurn(turnType, newState, nCardsToDraw);
       return;
     }
-
-    // Accept the new turn.
-    newState.turnOwner = myPid;
 
     // Draw cards if we're told to.
     if (nCardsToDraw) {
