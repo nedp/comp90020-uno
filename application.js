@@ -244,8 +244,8 @@ var Application = (function () {
     } else {
       // 4. Pass the turn to the next process.
       // TODO Wait for an ack.
-      Network.endTurn(turnType, GameState, nCardsToDraw);
       LocalState.isMyTurn = false;
+      Network.endTurn(turnType, GameState, nCardsToDraw);
     }
 
     // 6. update my own view
