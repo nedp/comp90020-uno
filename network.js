@@ -686,13 +686,20 @@ var Network = (function () {
 
   function passTurn(turnType, newDirection, newState, nCardsToDraw) {
     var nextPlayer = topology[newDirection][myPid];
-    sendToPid(nextPlayer, ROOM, TURN, {
+
+    var payload = {
       turnCount: turnCount,
       turnType: turnType,
       newState: newState,
       direction: newDirection,
       nCardsToDraw: nCardsToDraw,
-    });
+    };
+
+    if (nextPlayer === myPid) {
+      onTurnMessage(payload);
+    } else {
+      sendToPid(nextPlayer, ROOM, TURN, payload);
+    }
   }
 
   // === Failure handling functions ===
