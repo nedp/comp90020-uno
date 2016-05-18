@@ -39,5 +39,5 @@ corresponding JS files are updated.
 
 * Rob Holt (388648)
 * Benjamin Kaiser (655060)
-* Bruno Marques (INSERT STUDENT ID HERE)
+* Bruno Marques (659338)
 * Ned Pummeroy (586530)
