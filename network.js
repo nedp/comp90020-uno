@@ -442,8 +442,8 @@ var Network = (function () {
     renderReady(readySet);
     var peers = webrtc.getPeers();
     if (peers.length !== 0) {
-      // Don't use the `broadcast` function because we're still
-      // establishing the initial network.
+      // Since we're still establishing the network, this will
+      // use the broadcast supplied by WebRTC, not our own S-Multicast.
       broadcast(ROOM, READY);
     }
   }
