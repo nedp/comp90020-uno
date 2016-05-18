@@ -947,7 +947,7 @@ var Network = (function () {
           break;
         }
       }
-      if (TurnState.backup.length === 0) {
+      if (TurnState.backup.length === 0 || pid === myPid) {
         recover();
       }
       else {
