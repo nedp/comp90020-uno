@@ -248,8 +248,6 @@ var Network = (function () {
       Utility.log("It's my turn first!");
 
       becomeLeader(generateTopology());
-    } else {
-      topology = generateTopology();
     }
 
     onJoin();
