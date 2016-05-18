@@ -446,7 +446,7 @@ var Network = (function () {
     if (peers.length !== 0) {
       // Don't use the `broadcast` function because we're still
       // establishing the initial network.
-      webrtc.sendDirectlyToAll(ROOM, READY);
+      broadcast(ROOM, READY);
     }
   }
 
