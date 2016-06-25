@@ -12,6 +12,10 @@ go to http://nedp.github.io/comp90020-uno/?room=ROOM_NAME
 Players who use the same room parameter will be placed in a game
 together.
 
+## Browser compatibility
+
+Last we checked, only Chrome is supported.
+
 ## Architecture
 
 Each browser tab is treated as an independent process, and these
