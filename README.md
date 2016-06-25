@@ -22,6 +22,17 @@ Each browser tab is treated as an independent process, and these
 process communicate with each other directly to maintain a game
 of Uno.
 
+### Distributed algorithms
+
+Distributed algorithms which we used include:
+
+* A virtual ring based mutual exclusion for turn taking
+* Use of a dynamic central authority (leader) for basic topology 
+  changes
+* The Bully algorithm for leader election
+* An extension to the ring mutex algorithm for rolling back in
+  the event of turn taker failure
+
 ### Failure handling
 
 The implementation assumes a synchronous network. 
@@ -38,6 +49,8 @@ step.
 We claim that, subject to the stated assumptions, the system will
 recover from any combination of process crashes and process 
 additions so long as at least one original process survives.
+This is significant because a traditional weakness of ring based
+mutual exclusion is that it does not tolerate a single crash failure.
 
 ###  WebRTC
 
